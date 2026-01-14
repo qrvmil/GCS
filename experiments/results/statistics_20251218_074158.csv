@@ -1,0 +1,6 @@
+num_seeds,iris_time_mean,iris_time_std,iris_time_min,iris_time_max,gcs_time_mean,gcs_time_std,gcs_time_min,gcs_time_max,path_length_mean,path_length_std,path_length_min,path_length_max,success_count,total_trials,success_rate,total_time_mean
+1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,0,5,0.0,0.0
+3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,0,5,0.0,0.0
+5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,0,5,0.0,0.0
+7,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,0,5,0.0,0.0
+10,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,0,5,0.0,0.0
