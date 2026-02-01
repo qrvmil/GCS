@@ -1,0 +1,10 @@
+\babel@toc {russian}{}\relax 
+\contentsline {section}{Аннотация}{3}{section*.2}%
+\contentsline {section}{Ключевые слова}{4}{section*.3}%
+\contentsline {section}{\numberline {1}Введение и обзор литературы}{4}{section.1}%
+\contentsline {section}{\numberline {2}Эксперименты}{5}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Эксперименты по построению выпуклых регионов}{5}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Эксперименты по планированию траекторий с использованием GCS}{7}{subsection.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.1}Планирование между удалёнными точками}{7}{subsubsection.2.2.1}%
+\contentsline {subsubsection}{\numberline {2.2.2}Планирование между позициями на полках}{8}{subsubsection.2.2.2}%
+\contentsline {section}{Список литературы}{9}{Item.7}%

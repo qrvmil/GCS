@@ -1,0 +1,348 @@
+\documentclass[a4paper,12pt]{extarticle}
+\usepackage{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english,russian]{babel}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{colortbl}
+\usepackage{tikz}
+\usepackage{pgf}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{indentfirst}
+\usepackage{float}
+
+\usepackage[
+backend=biber,
+style=numeric,
+maxbibnames=99
+]{biblatex}
+\addbibresource{refs.bib}
+\usepackage[colorlinks,citecolor=blue,linkcolor=blue,bookmarks=false,hypertexnames=true, urlcolor=blue]{hyperref} 
+\usepackage{indentfirst}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage[flushleft]{threeparttable}
+\usepackage{tablefootnote}
+
+\usepackage{chngcntr} % нумерация графиков и таблиц по секциям
+\counterwithin{table}{section}
+\counterwithin{figure}{section}
+
+\graphicspath{{graphics/}}%путь к рисункам
+
+\makeatletter
+% \renewcommand{\@biblabel}[1]{#1.} % Заменяем библиографию с квадратных скобок на точку:
+\makeatother
+
+\geometry{left=2.5cm}% левое поле
+\geometry{right=1.0cm}% правое поле
+\geometry{top=2.0cm}% верхнее поле
+\geometry{bottom=2.0cm}% нижнее поле
+\setlength{\parindent}{1.25cm}
+\renewcommand{\baselinestretch}{1.5} % междустрочный интервал
+
+
+\newcommand{\bibref}[3]{\hyperlink{#1}{#2 (#3)}} % biblabel, authors, year
+\addto\captionsrussian{\def\refname{Список литературы (или источников)}} 
+
+\renewcommand{\theenumi}{\arabic{enumi}}% Меняем везде перечисления на цифра.цифра
+\renewcommand{\labelenumi}{\arabic{enumi}}% Меняем везде перечисления на цифра.цифра
+\renewcommand{\theenumii}{.\arabic{enumii}}% Меняем везде перечисления на цифра.цифра
+\renewcommand{\labelenumii}{\arabic{enumi}.\arabic{enumii}.}% Меняем везде перечисления на цифра.цифра
+\renewcommand{\theenumiii}{.\arabic{enumiii}}% Меняем везде перечисления на цифра.цифра
+\renewcommand{\labelenumiii}{\arabic{enumi}.\arabic{enumii}.\arabic{enumiii}.}% Меняем везде перечисления на цифра.цифра
+
+\begin{document}
+\input{title_kr}% это титульный лист - выберите подходящий вам из имеющихся в проекте вариантов (kr - курсовая работа у 3 курса, vkr - выпускная квалификационная работа у 4 курса)
+\newpage
+\setcounter{page}{2}
+
+{
+	\hypersetup{linkcolor=black}
+	\tableofcontents
+}
+
+\newpage
+
+\newpage
+\section*{Аннотация}   % this is how to use russian
+В последние годы широкое распространение получили подходы к планированию движений манипуляторов, основанные на разбиении пространства конфигураций на граф выпуклых регионов и последующей оптимизации по этому графу. Ключевым узким местом таких методов является построение выпуклых областей в пространстве высокой размерности. Этот этап требует значительных вычислительных затрат, а полученные регионы не всегда обладают хорошими геометрическими свойствами, что приводит к ухудшению качества графа и увеличению времени поиска траектории.
+
+В данной работе проводится исследование различных способов построения графа выпуклых оболочек в пространстве конфигураций манипулятора и анализируется их влияние на длину планируемого пути и время построения разбиения.
+
+\addcontentsline{toc}{section}{Аннотация}
+
+\section*{Ключевые слова}
+Планирование движений, робот-манипулятор, пространство конфигураций, выпуклые области, граф выпуклых оболочек
+\pagebreak
+
+\addcontentsline{toc}{section}{Ключевые слова}
+
+\section{Введение и обзор литературы}
+Задача планирования движений для робототехнических манипуляторов в среде с препятствиями является актуальной и находит применение в таких областях, как промышленная робототехника и космическая робототехника. Данная задача активно исследуется на протяжении длительного времени, в результате чего было предложено множество различных подходов к её решению.
+
+К классическим методам планирования относятся алгоритмы, основанные на случайном семплировании пространства конфигураций, такие как Rapidly-exploring Random Trees (RRT)~\cite{1} и Probabilistic Roadmaps (PRM)~\cite{2}, которые широко применяются на практике благодаря своей универсальности и простоте реализации. Наряду с ними в последние годы получили развитие подходы, основанные на машинном обучении~\cite{3}, направленные на ускорение поиска траекторий или аппроксимацию сложных проверок столкновений.
+
+Одним из современных направлений в области планирования движений являются оптимизационные методы, в рамках которых задача планирования формулируется как задача оптимизации с ограничениями~\cite{4}. В частности, в ряде работ предлагается представлять пространство конфигураций в виде графа выпуклых множеств (Graph of Convex Sets, GCS)~\cite{5}, по которому далее осуществляется поиск оптимальной траектории с использованием методов выпуклой оптимизации. Такой подход позволяет эффективно сочетать дискретный выбор последовательности регионов и непрерывную оптимизацию внутри каждого выпуклого множества.
+
+Эффективность методов, основанных на графе выпуклых множеств, в значительной степени определяется качеством разбиения пространства конфигураций на выпуклые области. Построение таких областей в пространстве высокой размерности является вычислительно сложной задачей, особенно в случае манипуляторов с большим числом степеней свободы. В работе C-IRIS~\cite{6} предлагается метод построения сертифицированных выпуклых регионов без коллизий в пространстве конфигураций с использованием выпуклой оптимизации и сумм квадратов, однако вычислительная сложность подобных подходов быстро возрастает с увеличением размерности задачи.
+
+В более поздних работах рассматриваются приближённые методы разбиения пространства конфигураций, направленные на уменьшение числа выпуклых регионов и ускорение их построения. В частности, в \cite{7} основывается на покрытии графов видимости кликами, предлагается аппроксимировать пространство конфигураций с помощью небольшого числа выпуклых оболочек, что позволяет существенно сократить вычислительные затраты по сравнению с итеративным наращиванием регионов.
+
+Несмотря на предложенные подходы, задача выбора и сравнения способов построения графа выпуклых оболочек остаётся открытой. В частности, остаётся не до конца исследованным влияние различных методов разбиения пространства конфигураций на качество планируемых траекторий и вычислительную эффективность алгоритмов планирования, что и является предметом настоящей работы.
+
+\section{Эксперименты}
+
+В данном разделе представлены результаты экспериментального исследования,
+направленного на анализ качества разбиения пространства конфигураций на
+выпуклые регионы, а также на оценку влияния этого разбиения на эффективность
+планирования траекторий с использованием графа выпуклых множеств (GCS).
+
+\subsection{Эксперименты по построению выпуклых регионов}
+
+В первой серии экспериментов исследовалось влияние способа генерации
+начальных точек для алгоритма IRIS на качество разбиения пространства
+конфигураций. Качество разбиения напрямую влияет на эффективность поиска
+в задачах GCS, поскольку узкие, вытянутые или слабо связанные выпуклые
+регионы приводят к ухудшению сходимости алгоритмов оптимизации.
+
+Для построения выпуклых регионов использовалась реализация алгоритма IRIS
+из симулятора Drake. В качестве тестовой платформы применялась модель
+манипулятора KUKA iiwa с 7 степенями свободы. Эксперименты проводились в
+трёх сценах различной сложности: сцена с одной полкой, сцена с двумя
+параллельными полками и сцена с тремя полками, расположенными вокруг
+манипулятора (Рис. 2.1).
+
+\begin{figure}[H]
+    \centering
+
+    \begin{subfigure}[t]{0.32\textwidth}
+        \centering
+        \includegraphics[
+            height=3.5cm,
+            keepaspectratio
+        ]{meshcat1.png}
+        \caption{Манипулятор и одна полка}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.32\textwidth}
+        \centering
+        \includegraphics[
+            height=3.5cm,
+            keepaspectratio
+        ]{meshcat2.png}
+        \caption{Манипулятор и две параллельные полки}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.32\textwidth}
+        \centering
+        \includegraphics[
+            height=3.5cm,
+            keepaspectratio
+        ]{meshcat3.png}
+        \caption{Манипулятор и три полки вокруг него}
+    \end{subfigure}
+
+    \caption{Экспериментальные сцены, использованные для построения IRIS-регионов}
+    \label{fig:scenes}
+\end{figure}
+
+Для каждой сцены выполнялись независимые запуски алгоритма IRIS с числом
+начальных точек 10, 20, 30 и 50 (Рис. 2.2). В ходе экспериментов измерялись время
+построения выпуклых регионов, количество изолированных регионов, а также
+качество покрытия пространства конфигураций. Оценка покрытия выполнялась
+методом Монте-Карло на основе 500 случайных конфигураций.
+Покрытие определялось как доля конфигураций, принадлежащих хотя бы одному
+выпуклому региону.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[
+        height=6.1cm,
+        keepaspectratio
+    ]{meshcat_points.png}
+    \caption{Случайно сгенерированные начальные точки для алгоритма IRIS}
+    \label{fig:iris-seeds}
+\end{figure}
+
+
+\begin{table}[H]
+\centering
+\caption{Анализ покрытия IRIS-регионами для различных сцен}
+\begin{tabular}{lccccc}
+\toprule
+Scene & Seeds & Isolation (\%) & Coverage (\%) & IRIS Time (s) \\
+\midrule
+Single Shelf & 10 & 0.0 & 67.0 & 63 \\
+Single Shelf & 20 & 0.0 & 67.8 & 156 \\
+Single Shelf & 30 & 0.0 & 76.2 & 180 \\
+Single Shelf & 50 & 0.0 & 83.0 & 319 \\
+\midrule
+Two Shelves & 10 & 0.0 & 66.3 & 97 \\
+Two Shelves & 20 & 0.0 & 72.2 & 218 \\
+Two Shelves & 30 & 0.0 & 75.2 & 256 \\
+Two Shelves & 50 & 0.0 & 82.2 & 430 \\
+\midrule
+Three Shelves & 10 & 0.0 & 40.2 & 348 \\
+Three Shelves & 20 & 0.0 & 47.2 & 413 \\
+Three Shelves & 30 & 0.5 & 51.5 & 691 \\
+Three Shelves & 50 & 0.5 & 60.2 & 1299 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Результаты показывают, что увеличение числа начальных точек приводит к росту
+покрытия пространства конфигураций, однако при этом существенно возрастает
+время построения выпуклых регионов, особенно для сцен со сложной геометрией.
+Кроме того, равномерная случайная генерация начальных точек приводит к
+недостаточному покрытию узких и геометрически сложных областей сцены,
+в частности зон вблизи полок.
+
+\subsection{Эксперименты по планированию траекторий с использованием GCS}
+
+Во второй серии экспериментов исследовалось влияние качества разбиения
+пространства конфигураций на результаты планирования траекторий. Для
+улучшения покрытия областей сложной геометрии был введён параметр
+\texttt{shelf\_ratio}, определяющий долю начальных точек для IRIS,
+генерируемых вблизи полок. Во всех экспериментах использовалось значение
+\texttt{shelf\_ratio = 0.3}.
+
+Качество планирования оценивалось по двум метрикам: длина траектории и
+время решения. Были рассмотрены два сценария: планирование между максимально
+удалёнными точками в пространстве конфигураций и планирование между
+позициями на полках.
+
+\subsubsection{Планирование между удалёнными точками}
+
+\begin{table}[H]
+\centering
+\caption{Результаты планирования между удалёнными точками}
+\begin{tabular}{lcccc}
+\toprule
+Scene & Seeds & Success & Path Length & Solve Time (s) \\
+\midrule
+Single Shelf & 10 & 3/3 & 10.31 $\pm$ 0.20 & 0.007 \\
+Single Shelf & 20 & 3/3 & 11.29 $\pm$ 1.00 & 0.012 \\
+Single Shelf & 30 & 3/3 & 10.73 $\pm$ 0.62 & 0.008 \\
+Single Shelf & 50 & 3/3 & 11.03 $\pm$ 0.46 & 0.007 \\
+\midrule
+Two Shelves & 10 & 3/3 & 12.93 $\pm$ 1.25 & 0.029 \\
+Two Shelves & 20 & 3/3 & 11.81 $\pm$ 1.44 & 0.010 \\
+Two Shelves & 30 & 3/3 & 11.00 $\pm$ 0.65 & 0.014 \\
+Two Shelves & 50 & 3/3 & 11.06 $\pm$ 1.22 & 0.008 \\
+\midrule
+Three Shelves & 10 & 3/3 & 9.77 $\pm$ 0.51 & 0.019 \\
+Three Shelves & 20 & 3/3 & 10.52 $\pm$ 1.59 & 0.021 \\
+Three Shelves & 30 & 3/3 & 10.30 $\pm$ 0.42 & 0.013 \\
+Three Shelves & 50 & 3/3 & 10.99 $\pm$ 0.76 & 0.027 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Во всех сценах была достигнута 100\% успешность планирования. Время решения
+остается малым, что подтверждает эффективность двухэтапного подхода с
+использованием предварительного поиска пути в графе регионов.
+
+\subsubsection{Планирование между позициями на полках}
+
+\begin{table}[H]
+\centering
+\caption{Результаты планирования между позициями на полках}
+\begin{tabular}{lccccc}
+\toprule
+Scene & Seeds & Success & Success (\%) & Path Length & Solve Time (s) \\
+\midrule
+Single Shelf & 10 & 3/3 & 100 & 0.48 & 0.010 \\
+Single Shelf & 20 & 1/3 & 33 & 0.07 & 0.002 \\
+Single Shelf & 30 & 1/3 & 33 & 0.18 & 0.002 \\
+Single Shelf & 50 & 1/3 & 33 & 0.07 & 0.001 \\
+\midrule
+Two Shelves & 10 & 0/15 & 0 & -- & -- \\
+Two Shelves & 20 & 1/15 & 7 & 0.01 & 0.000 \\
+Two Shelves & 30 & 10/15 & 67 & 1.02 & 0.006 \\
+Two Shelves & 50 & 0/15 & 0 & -- & -- \\
+\midrule
+Three Shelves & 10 & 3/21 & 14 & 0.11 & 0.002 \\
+Three Shelves & 20 & 11/21 & 52 & 0.56 & 0.001 \\
+Three Shelves & 30 & 12/21 & 57 & 0.70 & 0.003 \\
+Three Shelves & 50 & 15/21 & 71 & 1.07 & 0.010 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Эксперименты в сложных геометриях показали, что увеличение плотности
+выпуклых регионов критично для успешного планирования. При этом результаты
+остаются нестабильными для некоторых сцен, что указывает на необходимость
+дальнейших исследований по улучшению стратегии разбиения пространства конфигураций.
+
+
+\newpage
+\printbibliography[heading=bibintoc]
+
+% Альтернатива ручному оформлению (если требуют thebibliography)
+\begin{thebibliography}{0}
+
+\bibitem{lavalle1998}\hypertarget{lavalle1998}{}
+LaValle S. M.
+Rapidly-Exploring Random Trees: A New Tool for Path Planning //
+Proceedings of the IEEE International Conference on Robotics and Automation (ICRA). — 1998.
+
+\bibitem{karaman2011}\hypertarget{karaman2011}{}
+Karaman S., Frazzoli E.
+Sampling-based algorithms for optimal motion planning //
+The International Journal of Robotics Research. — 2011. — Vol. 30. — P. 846--894.
+
+\bibitem{kalashnikov2018}\hypertarget{kalashnikov2018}{}
+Kalashnikov D., Irpan A., Pastor P., Ibarz J., Herzog A., Jang E., Quillen D., Holly E.,
+Kalakrishnan M., Vanhoucke V., Levine S.
+QT-Opt: Scalable Deep Reinforcement Learning for Vision-Based Robotic Manipulation
+[Электронный ресурс] //
+Proceedings of the 2nd Conference on Robot Learning (CoRL 2018). — Zürich, Switzerland, 2018.
+
+\bibitem{zucker2013}\hypertarget{zucker2013}{}
+Zucker M., Ratliff N., Dragan A. D., Pivtoraiko M., Klingensmith M., Dellin C. M.,
+Bagnell J. A., Srinivasa S. S.
+CHOMP: Covariant Hamiltonian Optimization for Motion Planning //
+The International Journal of Robotics Research. — 2013. — Vol. 32. — P. 1164--1193.
+
+\bibitem{marcucci2021}\hypertarget{marcucci2021}{}
+Marcucci T., Umenberger J., Parrilo P. A., Tedrake R.
+Shortest Paths in Graphs of Convex Sets //
+SIAM Journal on Optimization. — 2021.
+
+\bibitem{werner2024}\hypertarget{werner2024}{}
+Werner P., Cohn T., Jiang R. H., Seyde T., Simchowitz M., Tedrake R., Rus D.
+Faster Algorithms for Growing Collision-Free Convex Polytopes in Robot Configuration Space
+[Электронный ресурс] //
+arXiv preprint arXiv:2410.12649. — 2024.
+
+\bibitem{werner2024clique}\hypertarget{werner2024clique}{}
+Werner P., Amice A., Marcucci T., Rus D., Tedrake R.
+Approximating Robot Configuration Spaces with Few Convex Sets using Clique Covers of Visibility Graphs //
+Proceedings of the IEEE International Conference on Robotics and Automation (ICRA). — Yokohama, Japan, 2024. — P. 10359--10365.
+
+
+
+
+
+\end{thebibliography}
+\addcontentsline{toc}{section}{Список литературы}
+
+	
+%\newpage 
+%\printbibliography[heading=bibintoc] 
+
+% \begin{thebibliography}{0}
+% 	\bibitem{chirkova18}\hypertarget{chirkova18}{}
+% 	\href{https://arxiv.org/abs/1810.10927}
+% 	{Nadezhda Chirkova, Ekaterina Lobacheva, Dmitry Vetrov. Bayesian Compression for Natural Language Processing. In EMNLP 2018.}
+% \end{thebibliography}
+	
+
+\end{document}
