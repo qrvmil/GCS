@@ -179,7 +179,7 @@ class GCSPathPlanner:
             q_start, q_goal, order, max_rounded_paths
         )
     
-    def _get_connected_subgraph(self, start_idx: int, goal_idx: int) -> Optional[List[int]]:
+    def _get_connected_subgraph(self, start_idx: int, goal_idx: int, start_nearest_idx: int = None, goal_nearest_idx: int = None) -> Optional[List[int]]:
         n = len(self.regions)
         adj = [[] for _ in range(n)]
         for i in range(n):
@@ -187,6 +187,13 @@ class GCSPathPlanner:
                 if self.regions[i].IntersectsWith(self.regions[j]):
                     adj[i].append(j)
                     adj[j].append(i)
+
+        if adj[start_idx] == [] and start_nearest_idx is not None:
+            adj[start_idx].append(start_nearest_idx)
+            adj[start_nearest_idx].append(start_idx)
+        if adj[goal_idx] == [] and goal_nearest_idx is not None:
+            adj[goal_idx].append(goal_nearest_idx)
+            adj[goal_nearest_idx].append(goal_idx)
         
         visited = {start_idx}
         queue = [start_idx]
@@ -211,7 +218,7 @@ class GCSPathPlanner:
         return None
     
     def _solve_gcs_internal(self, regions: List[HPolyhedron], q_start: np.ndarray, 
-                            q_goal: np.ndarray, order: int, max_rounded_paths: int) -> bool:
+                            q_goal: np.ndarray, order: int, max_rounded_paths: int, start_nearest_idx: int = None, goal_nearest_idx: int = None) -> bool:
         n = len(regions)
         
         gcs = GcsTrajectoryOptimization(self.nq)
@@ -235,11 +242,15 @@ class GCSPathPlanner:
         for i, r in enumerate(regions):
             if r.PointInSet(q_start):
                 gcs.AddEdges(source, region_subgraphs[i])
+                if start_nearest_idx is not None:
+                    gcs.AddEdges(region_subgraphs[i], region_subgraphs[start_nearest_idx])
                 print(f"  Source -> region {i}", flush=True)
         
         for i, r in enumerate(regions):
             if r.PointInSet(q_goal):
                 gcs.AddEdges(region_subgraphs[i], target)
+                if goal_nearest_idx is not None:
+                    gcs.AddEdges(region_subgraphs[goal_nearest_idx], region_subgraphs[i])
                 print(f"  Region {i} -> target", flush=True)
         
         gcs.AddTimeCost()
@@ -274,7 +285,8 @@ class GCSPathPlanner:
     
     def solve_from_configs(self, q_start: np.ndarray, q_goal: np.ndarray,
                            order: int = 1, max_rounded_paths: int = 3,
-                           build_missing_regions: bool = False) -> bool:
+                           build_missing_regions: bool = False,
+                           start_nearest_idx: int = None, goal_nearest_idx: int = None) -> bool:
         """
         Solve path planning directly from joint configurations.
         
@@ -298,14 +310,19 @@ class GCSPathPlanner:
         
         print(f"Start in region {start_region_idx}, goal in region {goal_region_idx}", flush=True)
         
-        connected_regions = self._get_connected_subgraph(start_region_idx, goal_region_idx)
+        connected_regions = self._get_connected_subgraph(start_region_idx, goal_region_idx, start_nearest_idx, goal_nearest_idx)
         if connected_regions is None:
             print("ERROR: No path exists between start and goal regions", flush=True)
             return False
         
         print(f"Using {len(connected_regions)} connected regions", flush=True)
+
+        ind_start = connected_regions.index(start_nearest_idx) if start_nearest_idx in connected_regions else None
+        ind_goal = connected_regions.index(goal_nearest_idx) if goal_nearest_idx in connected_regions else None
+
+        print(f"Start nearest index: {ind_start}, goal nearest index: {ind_goal}", flush=True)
         
         return self._solve_gcs_internal(
             [self.regions[i] for i in connected_regions],
-            q_start, q_goal, order, max_rounded_paths
+            q_start, q_goal, order, max_rounded_paths, start_nearest_idx=ind_start, goal_nearest_idx=ind_goal
         )

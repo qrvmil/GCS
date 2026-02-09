@@ -137,33 +137,43 @@ class IRISRegionBuilder:
         return self.count_isolated() / len(self.regions)
     
     def _get_shelf_positions(self) -> List[np.ndarray]:
-        match self.scene_type:
-            case SceneType.SINGLE_SHELF:
-                return [
-                    np.array([0.70, 0.0, 0.30]),
-                    np.array([0.70, 0.0, 0.50]),
-                    np.array([0.70, 0.0, 0.70]),
-                    np.array([0.65, 0.1, 0.40]),
-                    np.array([0.65, -0.1, 0.60]),
-                ]
-            case SceneType.TWO_SHELVES:
-                return [
-                    np.array([0.75, -0.35, 0.45]),
-                    np.array([0.75, 0.35, 0.45]),
-                    np.array([0.75, -0.35, 0.65]),
-                    np.array([0.75, 0.35, 0.65]),
-                    np.array([0.70, -0.35, 0.55]),
-                    np.array([0.70, 0.35, 0.55]),
-                ]
-            case SceneType.TABLE_THREE_SHELVES:
-                return [
-                    np.array([0.65, 0.50, 0.45]),
-                    np.array([0.65, -0.50, 0.45]),
-                    np.array([-0.75, 0.0, 0.45]),
-                    np.array([0.60, 0.45, 0.35]),
-                    np.array([0.60, -0.45, 0.35]),
-                    np.array([-0.70, 0.1, 0.35]),
-                ]
+        if self.scene_type == SceneType.SINGLE_SHELF:
+            return [
+                np.array([0.86, 0.0, 0.13]),
+                np.array([0.9, 0.2, 0.13]),
+                np.array([0.86, 0.0, 0.33]),
+                np.array([0.9, 0.0, 0.64]),
+                np.array([0.9, 0.2, 0.6]),
+                np.array([0.9, -0.2, 0.6]),
+                np.array([0.9, 0.0, 0.9]),
+            ]
+        elif self.scene_type == SceneType.TWO_SHELVES:
+            return [
+                np.array([1, -0.35, 0.42]),
+                np.array([1, 0.35, 0.42]),
+                np.array([0.95, 0.35, 0.65]),
+                np.array([0.95, -0.35, 0.65]),
+                np.array([0.95, -0.35, 0.15]),
+                np.array([0.95, 0.35, 0.15]),
+                np.array([0.88, -0.24, 0.88]),
+                np.array([0.88, 0.24, 0.88]),
+            ]
+        elif self.scene_type == SceneType.TABLE_THREE_SHELVES:
+            return [
+                np.array([0.87, 0.6, 1.36]),
+                np.array([0.87, 0.6, 0.9]),
+                np.array([0.87, 0.6, 1.2]),
+                np.array([-0.87, 0.25, 1.36]),
+                np.array([-1, 0.1, 1.38]),
+                np.array([-1, 0.1, 1.15]),
+                np.array([-1, 0.1, 0.9]),
+                np.array([0.87, -0.6, 1.36]),
+                np.array([0.87, -0.6, 0.9]),
+                np.array([0.87, -0.6, 1.21]),
+                np.array([0.87, -0.6, 1.15]),
+            ]
+        else:
+            return []
             
     def _solve_ik(self, goal_pos: np.ndarray, q_initial: np.ndarray) -> Optional[np.ndarray]:
         try:
@@ -255,4 +265,39 @@ class IRISRegionBuilder:
             self.build_time += time.perf_counter() - t0
         
         print(f"  Built {len(self.regions)} regions in {self.build_time:.1f}s", flush=True)
+        return self.build_time
+    
+    def build_regions_from_seeds(self, seed_configs: List[np.ndarray],
+                                 collision_samples: int = 3) -> float:
+        """
+        Build IRIS regions from provided seed configurations.
+        
+        Args:
+            seed_configs: List of seed configurations to build regions around
+            collision_samples: Number of collision samples for IRIS
+            
+        Returns:
+            Total build time in seconds
+        """
+        self.seed_configs = [q.copy() for q in seed_configs]
+        self.regions = []
+        self.build_time = 0.0
+        
+        for i, q in enumerate(self.seed_configs):
+            self.plant.SetPositions(self.plant_context, q)
+            
+            opts = IrisOptions()
+            opts.num_collision_infeasible_samples = collision_samples
+            opts.random_seed = self.random_seed + i
+            opts.require_sample_point_is_contained = True
+            
+            t0 = time.perf_counter()
+            try:
+                region = IrisNp(self.plant, self.plant_context, opts)
+                self.regions.append(region)
+            except Exception:
+                pass
+            self.build_time += time.perf_counter() - t0
+        
+        print(f"  Built {len(self.regions)} regions from {len(seed_configs)} seeds in {self.build_time:.1f}s", flush=True)
         return self.build_time

@@ -159,16 +159,18 @@ class GCSPathExperiment:
                     start_in = any(r.PointInSet(q_start) for r in builder.regions)
                     goal_in = any(r.PointInSet(q_goal) for r in builder.regions)
                     print(f"  [SHELF] IK success. In regions: start={start_in}, goal={goal_in}", flush=True)
+
+                    print(f"  [SHELF] Planning path...", flush=True)
+                    success = planner.solve_from_configs(q_start, q_goal, build_missing_regions=True) ## !! changed to true for testing
+                    shelf_result.success = success
+                    shelf_result.path_length = planner.path_length
+                    shelf_result.solve_time = planner.solve_time
+                    shelf_result.num_regions_used = len(planner.regions)
                     
                     if start_in and goal_in:
-                        print(f"  [SHELF] Planning path...", flush=True)
-                        success = planner.solve_from_configs(q_start, q_goal, build_missing_regions=False)
-                        shelf_result.success = success
-                        shelf_result.path_length = planner.path_length
-                        shelf_result.solve_time = planner.solve_time
-                        shelf_result.num_regions_used = len(planner.regions)
+                        print(f"  [SHELF] configs in regions", flush=True)
                     else:
-                        print(f"  [SHELF] Configs not in regions - skipping", flush=True)
+                        print(f"  [SHELF] Configs not in regions", flush=True)
                 else:
                     print(f"  [SHELF] IK failed for goal", flush=True)
             else:
