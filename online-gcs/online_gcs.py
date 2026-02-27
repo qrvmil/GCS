@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import time
 import argparse
@@ -42,14 +42,16 @@ from helpers.rrt_star_planner import extract_keypoints_uniform
 
 @dataclass
 class OnlineGCSStats:
-    total_regions: int
-    gcs_success_count: int
-    rrt_fallback_count: int
-    total_queries: int
-    gcs_success_rate: float
-    total_regions_added: int
-    total_regions_after_pruning: int
-    stats_per_each_query: Dict[str, List[float]]
+    total_regions: int = 0
+    gcs_success_count: int = 0
+    rrt_fallback_count: int = 0
+    total_queries: int = 0
+    gcs_success_rate: float = 0.0
+    total_regions_added: int = 0
+    total_regions_after_pruning: int = 0
+    # Dict[way_name, [path_lengths, times]]
+    stats_per_each_query_gcs: Dict[str, List[List[float]]] = field(default_factory=dict)
+    stats_per_each_query_rrt: Dict[str, List[List[float]]] = field(default_factory=dict)
 
 
 class OnlineGCS:
@@ -83,6 +85,7 @@ class OnlineGCS:
         self.shelf_configs = self.shelf_configs[self.scene_to_config_key[scene_type]]
         
         self.current_qpos = np.array(self.shelf_configs[0]) if self.shelf_configs else np.zeros(7)
+        self.current_idx = -1
 
         self.stats = OnlineGCSStats()
         
@@ -396,12 +399,16 @@ class OnlineGCS:
         """Return current statistics of the online GCS algorithm."""
         return {
             "total_regions": len(self.gcs_planner.regions),
-            "gcs_success_count": self.gcs_success_count,
-            "rrt_fallback_count": self.rrt_fallback_count,
-            "total_queries": self.total_queries,
-            "gcs_success_rate": self.gcs_success_count / max(1, self.total_queries),
-            "total_regions_added": self.total_regions_added,
-            "total_regions_after_pruning": self.total_regions_after_pruning,
+            "gcs_success_count": self.stats.gcs_success_count,
+            "rrt_fallback_count": self.stats.rrt_fallback_count,
+            "total_queries": self.stats.total_queries,
+            "gcs_success_rate": self.stats.gcs_success_count / max(1, self.stats.total_queries),
+            "total_regions_added": self.stats.total_regions_added,
+            "total_regions_after_pruning": self.stats.total_regions_after_pruning,
+            "ways_rrt_time": {way: np.mean(self.stats.stats_per_each_query_rrt[way][1]) for way in self.stats.stats_per_each_query_rrt},
+            "ways_gcs_time": {way: np.mean(self.stats.stats_per_each_query_gcs[way][1]) for way in self.stats.stats_per_each_query_gcs},
+            "ways_rrt_path_length": {way: np.mean(self.stats.stats_per_each_query_rrt[way][0]) for way in self.stats.stats_per_each_query_rrt},
+            "ways_gcs_path_length": {way: np.mean(self.stats.stats_per_each_query_gcs[way][0]) for way in self.stats.stats_per_each_query_gcs},
         }
     
     def print_statistics(self):
@@ -417,6 +424,35 @@ class OnlineGCS:
         print(f"  Total regions:      {stats['total_regions']}")
         print(f"  Regions added:      {stats['total_regions_added']}")
         print(f"  Regions after pruning: {stats['total_regions_after_pruning']}")
+
+        all_ways = set(self.stats.stats_per_each_query_rrt.keys()) | set(
+            self.stats.stats_per_each_query_gcs.keys()
+        )
+        for way in sorted(all_ways):
+            rrt_time = stats["ways_rrt_time"].get(way)
+            gcs_time = stats["ways_gcs_time"].get(way)
+            rrt_path_len = stats["ways_rrt_path_length"].get(way)
+            gcs_path_len = stats["ways_gcs_path_length"].get(way)
+
+            if rrt_time is not None:
+                print(f"  RRT time for {way}: {rrt_time:.2f}s")
+            else:
+                print(f"  RRT time for {way}: N/A")
+
+            if gcs_time is not None:
+                print(f"  GCS time for {way}: {gcs_time:.2f}s")
+            else:
+                print(f"  GCS time for {way}: N/A")
+
+            if rrt_path_len is not None:
+                print(f"  RRT path length for {way}: {rrt_path_len:.2f}")
+            else:
+                print(f"  RRT path length for {way}: N/A")
+
+            if gcs_path_len is not None:
+                print(f"  GCS path length for {way}: {gcs_path_len:.2f}")
+            else:
+                print(f"  GCS path length for {way}: N/A")
         print(f"{'='*50}\n")
     
     def prune_redundant_regions(self) -> int:
@@ -499,7 +535,7 @@ class OnlineGCS:
         
         try:
             for iteration in range(self.max_iterations):
-                self.total_queries += 1
+                self.stats.total_queries += 1
                 
                 target_idx = self.get_random_point_from_shelf_configs()
                 target_qpos = np.array(self.shelf_configs[target_idx])
@@ -518,9 +554,11 @@ class OnlineGCS:
                     if self.logging:
                         print(f"  Both points in GCS, trying GCS planning...")
                     
+                    gcs_start_time = time.time()
                     success = self.gcs_planner.solve_from_configs(
                         self.current_qpos, target_qpos, build_missing_regions=False
                     )
+                    gcs_time = time.time() - gcs_start_time
                     
                     if success:
                         self.stats.gcs_success_count += 1
@@ -532,7 +570,14 @@ class OnlineGCS:
                             self._visualize_path(path_samples, use_gcs=True)
                             self._animate_trajectory(traj, duration=2.0 / animation_speed)
                         
+                        current_way_name = f'{self.current_idx}-{target_idx}'
+                        if current_way_name not in self.stats.stats_per_each_query_gcs:
+                            self.stats.stats_per_each_query_gcs[current_way_name] = [[], []]
+                        self.stats.stats_per_each_query_gcs[current_way_name][0].append(self.gcs_planner.path_length)
+                        self.stats.stats_per_each_query_gcs[current_way_name][1].append(gcs_time)
+
                         self.current_qpos = target_qpos.copy()
+                        self.current_idx = target_idx
                         if self.logging:
                             print(f"  GCS SUCCESS! Path length: {self.gcs_planner.path_length:.3f}")
                         continue
@@ -545,6 +590,7 @@ class OnlineGCS:
                 if self.logging:
                     print(f"  Running RRT* from current to target...")
                 
+                rrt_start_time = time.time()
                 rrt_path = self.rrt_planner.plan_bidirectional(
                     self.current_qpos, target_qpos, goal_tolerance=0.15
                 )
@@ -552,6 +598,7 @@ class OnlineGCS:
                     rrt_path = self.rrt_planner.plan(
                         self.current_qpos, target_qpos, goal_tolerance=0.15
                     )
+                rrt_time = time.time() - rrt_start_time
                 
                 if rrt_path is not None:
                     if self.logging:
@@ -574,9 +621,13 @@ class OnlineGCS:
                     if self.logging:
                         print(f"  Added {added} regions in {build_time:.2f}s")
                     
+                    gcs_start_time = time.time()
                     success = self.gcs_planner.solve_from_configs(
                         self.current_qpos, target_qpos, build_missing_regions=True
                     )
+                    gcs_time = time.time() - gcs_start_time
+
+                    current_way_name = f'{self.current_idx}-{target_idx}'
                     
                     if success:
                         if self.visualize and self.gcs_planner.trajectory is not None:
@@ -584,16 +635,28 @@ class OnlineGCS:
                                 self.gcs_planner.trajectory, 
                                 duration=2.0 / animation_speed
                             )
+
+                        if current_way_name not in self.stats.stats_per_each_query_gcs:
+                            self.stats.stats_per_each_query_gcs[current_way_name] = [[], []]
+                        self.stats.stats_per_each_query_gcs[current_way_name][0].append(self.gcs_planner.path_length)
+                        self.stats.stats_per_each_query_gcs[current_way_name][1].append(gcs_time)
                         
                         self.current_qpos = target_qpos.copy()
+                        self.current_idx = target_idx
                         if self.logging:
                             print(f"  GCS with new regions SUCCESS! "
                                   f"Path length: {self.gcs_planner.path_length:.3f}")
                     else:
                         if self.visualize:
                             self._animate_path(rrt_path, duration=2.0 / animation_speed)
+
+                        if current_way_name not in self.stats.stats_per_each_query_rrt:
+                            self.stats.stats_per_each_query_rrt[current_way_name] = [[], []]
+                        self.stats.stats_per_each_query_rrt[current_way_name][0].append(self.rrt_planner.path_length)
+                        self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
                         
                         self.current_qpos = target_qpos.copy()
+                        self.current_idx = target_idx
                         if self.logging:
                             print(f"  GCS still failed, using RRT path to reach target")
                 else:
@@ -611,8 +674,8 @@ class OnlineGCS:
                 if (iteration + 1) % 10 == 0:
                     print(f"[Progress] Iteration {iteration + 1}/{self.max_iterations}, "
                           f"Regions: {len(self.gcs_planner.regions)}, "
-                          f"GCS rate: {self.gcs_success_count}/{self.total_queries} "
-                          f"({self.gcs_success_count/self.total_queries*100:.1f}%)")
+                          f"GCS rate: {self.stats.gcs_success_count}/{self.stats.total_queries} "
+                          f"({self.stats.gcs_success_count/self.stats.total_queries*100:.1f}%)")
                     
         except KeyboardInterrupt:
             print("\n[KeyboardInterrupt] Stopping online GCS...")
