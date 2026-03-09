@@ -98,8 +98,17 @@ class GCSPathPlanner:
             region = IrisNp(self.plant, self.plant_context, opts)
             return region
         except Exception as e:
-            print(f"WARNING: Failed to build IRIS region: {e}", flush=True)
-            return None
+            try:
+                opts = IrisOptions()
+                opts.num_collision_infeasible_samples = 10
+                opts.configuration_space_margin = 1e-4
+                opts.random_seed = 12345
+                opts.require_sample_point_is_contained = True
+                region = IrisNp(self.plant, self.plant_context, opts)
+                return region
+            except Exception as e:
+                print(f"WARNING: Failed to build IRIS region: {e}", flush=True)
+                return None
     
     def _ensure_point_in_region(self, q: np.ndarray, point_name: str, 
                                   build_if_missing: bool = True) -> int:
@@ -273,7 +282,7 @@ class GCSPathPlanner:
                 self.trajectory = traj
                 self.path_length = self._compute_path_length(traj)
                 self.success = True
-                print(f"SUCCESS! Time: {self.solve_time:.2f}s, Path length: {self.path_length:.3f}", flush=True)
+                print(f"SUCCESS! Time: {self.solve_time:.5f}s, Path length: {self.path_length:.3f}", flush=True)
             else:
                 print(f"FAILED: No path found (time: {self.solve_time:.2f}s)", flush=True)
                 

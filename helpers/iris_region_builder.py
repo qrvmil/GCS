@@ -284,6 +284,8 @@ class IRISRegionBuilder:
         self.build_time = 0.0
         
         for i, q in enumerate(self.seed_configs):
+            if i > 0 and any(region.PointInSet(q) for region in self.regions):
+                continue
             self.plant.SetPositions(self.plant_context, q)
             
             opts = IrisOptions()
