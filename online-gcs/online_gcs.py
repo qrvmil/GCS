@@ -30,6 +30,7 @@ from helpers.gcs_panner import GCSPathPlanner
 from helpers.iris_region_builder import IRISRegionBuilder
 from helpers.rrt_star_planner import RRTStarPlanner
 from helpers.rrt_star_planner import extract_keypoints_uniform
+from helpers.opt_solver import TrajOptSolver
 
 # Algorithm:
 # 1. Receive target configurations sequentially
@@ -50,12 +51,14 @@ class OnlineGCSStats:
     gcs_success_rate: float = 0.0
     total_regions_added: int = 0
     total_regions_after_pruning: int = 0
-    total_keypoints_requested: int = 0  # Keypoints sent to build_regions_from_seeds (all requests)
-    total_iris_regions_built: int = 0   # IRIS regions actually built
+    total_keypoints_requested: int = 0
+    total_iris_regions_built: int = 0
     stats_per_way_iris_build_time: Dict[str, List[float]] = field(default_factory=dict)
     # Dict[way_name, [path_lengths, times]]
     stats_per_each_query_gcs: Dict[str, List[List[float]]] = field(default_factory=dict)
     stats_per_each_query_rrt: Dict[str, List[List[float]]] = field(default_factory=dict)
+    # Dict[way_name, [path_lengths, times, successes]]
+    stats_per_each_query_trajopt: Dict[str, List[List[float]]] = field(default_factory=dict)
 
 
 class OnlineGCS:
@@ -77,6 +80,14 @@ class OnlineGCS:
         self.rrt_planner = RRTStarPlanner(
             scene_type=scene_type,
             random_seed=random_seed,
+        )
+        
+        self.trajopt_solver = TrajOptSolver(
+            scene_type=scene_type,
+            num_knots=21,
+            d_min=0.01,
+            smoothness_weight=1.0,
+            path_length_weight=0.1,
         )
         
         self.scene_to_config_key = {
@@ -417,6 +428,17 @@ class OnlineGCS:
             "ways_rrt_path_length": {way: np.mean(self.stats.stats_per_each_query_rrt[way][0]) for way in self.stats.stats_per_each_query_rrt},
             "ways_gcs_path_length": {way: np.mean(self.stats.stats_per_each_query_gcs[way][0]) for way in self.stats.stats_per_each_query_gcs},
             "ways_iris_build_time": {way: np.mean(self.stats.stats_per_way_iris_build_time[way]) for way in self.stats.stats_per_way_iris_build_time},
+            "ways_trajopt_time": {way: np.mean(self.stats.stats_per_each_query_trajopt[way][1]) for way in self.stats.stats_per_each_query_trajopt},
+            "ways_trajopt_path_length": {
+                way: np.mean([l for l, s in zip(self.stats.stats_per_each_query_trajopt[way][0],
+                                                 self.stats.stats_per_each_query_trajopt[way][2]) if s > 0.5])
+                if any(s > 0.5 for s in self.stats.stats_per_each_query_trajopt[way][2]) else 0.0
+                for way in self.stats.stats_per_each_query_trajopt
+            },
+            "ways_trajopt_success_rate": {
+                way: np.mean(self.stats.stats_per_each_query_trajopt[way][2])
+                for way in self.stats.stats_per_each_query_trajopt
+            },
         }
     
     def print_statistics(self):
@@ -433,16 +455,23 @@ class OnlineGCS:
         print(f"  Regions added:      {stats['total_regions_added']} (IRIS regions actually built)")
         print(f"  Regions in GCS:     {stats['regions_in_gcs']} (current graph)")
 
-        all_ways = set(self.stats.stats_per_each_query_rrt.keys()) | set(
-            self.stats.stats_per_each_query_gcs.keys()
-        ) | set(self.stats.stats_per_way_iris_build_time.keys())
+        all_ways = (
+            set(self.stats.stats_per_each_query_rrt.keys())
+            | set(self.stats.stats_per_each_query_gcs.keys())
+            | set(self.stats.stats_per_way_iris_build_time.keys())
+            | set(self.stats.stats_per_each_query_trajopt.keys())
+        )
         for way in sorted(all_ways):
+            print(f"\n  --- {way} ---")
             rrt_time = stats["ways_rrt_time"].get(way)
             gcs_time = stats["ways_gcs_time"].get(way)
             gcs_vanilla_time = stats["ways_gcs_vanilla_time"].get(way)
             rrt_path_len = stats["ways_rrt_path_length"].get(way)
             gcs_path_len = stats["ways_gcs_path_length"].get(way)
             iris_build_time = stats["ways_iris_build_time"].get(way)
+            trajopt_time = stats["ways_trajopt_time"].get(way)
+            trajopt_path_len = stats["ways_trajopt_path_length"].get(way)
+            trajopt_success = stats["ways_trajopt_success_rate"].get(way)
 
             if rrt_time is not None:
                 print(f"  RRT time for {way}: {rrt_time:.5f}s")
@@ -459,6 +488,11 @@ class OnlineGCS:
             else:
                 print(f"  GCS vanilla time for {way}: N/A")
 
+            if trajopt_time is not None:
+                print(f"  TrajOpt time for {way}: {trajopt_time:.5f}s")
+            else:
+                print(f"  TrajOpt time for {way}: N/A")
+
             if rrt_path_len is not None:
                 print(f"  RRT path length for {way}: {rrt_path_len:.2f}")
             else:
@@ -468,6 +502,14 @@ class OnlineGCS:
                 print(f"  GCS path length for {way}: {gcs_path_len:.2f}")
             else:
                 print(f"  GCS path length for {way}: N/A")
+
+            if trajopt_path_len is not None and trajopt_path_len > 0:
+                print(f"  Optimization path length for {way}: {trajopt_path_len:.2f}")
+            else:
+                print(f"  Optimization path length for {way}: N/A")
+
+            if trajopt_success is not None:
+                print(f"  Optimization success rate for {way}: {trajopt_success*100:.0f}%")
 
             if iris_build_time is not None:
                 print(f"  IRIS build time for {way}: {iris_build_time:.5f}s")
@@ -583,6 +625,31 @@ class OnlineGCS:
                     self.rrt_planner.path_length if rrt_path is not None else 0.0
                 )
                 self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
+
+                # --- Optimization baseline: optimize the RRT path ---
+                if rrt_path is not None and len(rrt_path) >= 2:
+                    trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
+                    if current_way_name not in self.stats.stats_per_each_query_trajopt:
+                        self.stats.stats_per_each_query_trajopt[current_way_name] = [[], [], []]
+                    self.stats.stats_per_each_query_trajopt[current_way_name][0].append(
+                        trajopt_result.path_length if trajopt_result.success else 0.0
+                    )
+                    self.stats.stats_per_each_query_trajopt[current_way_name][1].append(
+                        trajopt_result.solve_time
+                    )
+                    self.stats.stats_per_each_query_trajopt[current_way_name][2].append(
+                        float(trajopt_result.success)
+                    )
+                    if self.visualize and trajopt_result.success and trajopt_result.path:
+                        trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
+                        self._visualize_path(trajopt_result.path, color=trajopt_color)
+                    if self.logging:
+                        if trajopt_result.success:
+                            print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
+                                  f"(was {trajopt_result.initial_path_length:.3f}), "
+                                  f"time: {trajopt_result.solve_time:.3f}s")
+                        else:
+                            print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
 
                 start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
                 goal_in_gcs = self.check_if_point_in_iris_regions(target_qpos)
