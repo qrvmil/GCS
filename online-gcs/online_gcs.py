@@ -28,19 +28,10 @@ from manipulation.utils import ConfigureParser
 from experiments.scene_types import SceneType
 from helpers.gcs_panner import GCSPathPlanner
 from helpers.iris_region_builder import IRISRegionBuilder
+from helpers.parallel_exploration import ParallelExplorationCoordinator
 from helpers.rrt_star_planner import RRTStarPlanner
 from helpers.rrt_star_planner import extract_keypoints_uniform
 from helpers.opt_solver import TrajOptSolver
-
-# Algorithm:
-# 1. Receive target configurations sequentially
-# 2. For each target, if both start AND goal are inside GCS regions, plan with GCS
-# 3. If not in GCS, run RRT* and build IRIS regions from the path keypoints
-# 4. Add new regions to GCS graph, gradually expanding coverage
-
-# TODO: add visualization
-# TODO: add logging
-# TODO: add smart keypoints selection
 
 @dataclass
 class OnlineGCSStats:
@@ -64,7 +55,7 @@ class OnlineGCSStats:
 class OnlineGCS:
     def __init__(self, scene_type: SceneType, random_seed: int = 42,
                  logging: bool = False, visualize: bool = False, smart_keypoints: bool = False,
-                 max_iterations: int = 100):
+                 max_iterations: int = 100, parallel_exploration: bool = False, num_workers: int = 2):
         self.scene_type = scene_type
         self.rng = np.random.default_rng(random_seed)
         self.random_seed = random_seed
@@ -72,7 +63,17 @@ class OnlineGCS:
         self.visualize = visualize
         self.max_iterations = max_iterations
         self.smart_keypoints = smart_keypoints
-        
+        self.parallel_exploration = parallel_exploration
+        self.num_workers = num_workers
+
+        self.exploration_coordinator: Optional[ParallelExplorationCoordinator] = None
+        if parallel_exploration:
+            self.exploration_coordinator = ParallelExplorationCoordinator(
+                scene_type=scene_type,
+                num_workers=num_workers,
+                random_seed=random_seed,
+            )
+
         self.iris_region_builder = IRISRegionBuilder(scene_type=scene_type, random_seed=random_seed)
         
         self.gcs_planner = GCSPathPlanner.from_iris_builder(self.iris_region_builder)
@@ -596,7 +597,18 @@ class OnlineGCS:
             time.sleep(0.5)
         
         try:
+            overall_time = time.time()
             for iteration in range(self.max_iterations):
+                # Harvest any regions built by parallel workers
+                if self.exploration_coordinator is not None:
+                    parallel_regions = self.exploration_coordinator.collect_results(
+                        self.gcs_planner.regions, self.rng
+                    )
+                    if parallel_regions:
+                        added = self.add_regions_to_gcs(parallel_regions)
+                        if self.logging and added > 0:
+                            print(f"  [Parallel] Integrated {added} regions from workers", flush=True)
+
                 self.stats.total_queries += 1
                 
                 target_idx = self.get_random_point_from_shelf_configs()
@@ -610,46 +622,46 @@ class OnlineGCS:
                     self._visualize_target_point(target_qpos)
 
                 current_way_name = f'{self.current_idx}-{target_idx}'
-                rrt_start_time = time.time()
-                rrt_path = self.rrt_planner.plan_bidirectional(
-                    self.current_qpos, target_qpos, goal_tolerance=0.15
-                )
-                if rrt_path is None:
-                    rrt_path = self.rrt_planner.plan(
-                        self.current_qpos, target_qpos, goal_tolerance=0.15
-                    )
-                rrt_time = time.time() - rrt_start_time
-                if current_way_name not in self.stats.stats_per_each_query_rrt:
-                    self.stats.stats_per_each_query_rrt[current_way_name] = [[], []]
-                self.stats.stats_per_each_query_rrt[current_way_name][0].append(
-                    self.rrt_planner.path_length if rrt_path is not None else 0.0
-                )
-                self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
+                # rrt_start_time = time.time()
+                # rrt_path = self.rrt_planner.plan_bidirectional(
+                #     self.current_qpos, target_qpos, goal_tolerance=0.15
+                # )
+                # if rrt_path is None:
+                #     rrt_path = self.rrt_planner.plan(
+                #         self.current_qpos, target_qpos, goal_tolerance=0.15
+                #     )
+                # rrt_time = time.time() - rrt_start_time
+                # if current_way_name not in self.stats.stats_per_each_query_rrt:
+                #     self.stats.stats_per_each_query_rrt[current_way_name] = [[], []]
+                # self.stats.stats_per_each_query_rrt[current_way_name][0].append(
+                #     self.rrt_planner.path_length if rrt_path is not None else 0.0
+                # )
+                # self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
 
                 # --- Optimization baseline: optimize the RRT path ---
-                if rrt_path is not None and len(rrt_path) >= 2:
-                    trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
-                    if current_way_name not in self.stats.stats_per_each_query_trajopt:
-                        self.stats.stats_per_each_query_trajopt[current_way_name] = [[], [], []]
-                    self.stats.stats_per_each_query_trajopt[current_way_name][0].append(
-                        trajopt_result.path_length if trajopt_result.success else 0.0
-                    )
-                    self.stats.stats_per_each_query_trajopt[current_way_name][1].append(
-                        trajopt_result.solve_time
-                    )
-                    self.stats.stats_per_each_query_trajopt[current_way_name][2].append(
-                        float(trajopt_result.success)
-                    )
-                    if self.visualize and trajopt_result.success and trajopt_result.path:
-                        trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
-                        self._visualize_path(trajopt_result.path, color=trajopt_color)
-                    if self.logging:
-                        if trajopt_result.success:
-                            print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
-                                  f"(was {trajopt_result.initial_path_length:.3f}), "
-                                  f"time: {trajopt_result.solve_time:.3f}s")
-                        else:
-                            print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
+                # if rrt_path is not None and len(rrt_path) >= 2:
+                #     trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
+                #     if current_way_name not in self.stats.stats_per_each_query_trajopt:
+                #         self.stats.stats_per_each_query_trajopt[current_way_name] = [[], [], []]
+                #     self.stats.stats_per_each_query_trajopt[current_way_name][0].append(
+                #         trajopt_result.path_length if trajopt_result.success else 0.0
+                #     )
+                #     self.stats.stats_per_each_query_trajopt[current_way_name][1].append(
+                #         trajopt_result.solve_time
+                #     )
+                #     self.stats.stats_per_each_query_trajopt[current_way_name][2].append(
+                #         float(trajopt_result.success)
+                #     )
+                #     if self.visualize and trajopt_result.success and trajopt_result.path:
+                #         trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
+                #         self._visualize_path(trajopt_result.path, color=trajopt_color)
+                #     if self.logging:
+                #         if trajopt_result.success:
+                #             print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
+                #                   f"(was {trajopt_result.initial_path_length:.3f}), "
+                #                   f"time: {trajopt_result.solve_time:.3f}s")
+                #         else:
+                #             print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
 
                 start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
                 goal_in_gcs = self.check_if_point_in_iris_regions(target_qpos)
@@ -700,6 +712,10 @@ class OnlineGCS:
                 if self.logging:
                     print(f"  Using RRT* path from current to target...")
 
+                rrt_path = self.rrt_planner.plan_bidirectional(
+                    self.current_qpos, target_qpos, goal_tolerance=0.15
+                )
+
                 if rrt_path is not None:
                     if self.logging:
                         print(f"  RRT found path with {len(rrt_path)} points, "
@@ -725,6 +741,18 @@ class OnlineGCS:
                     
                     if self.logging:
                         print(f"  Added {added} regions in {build_time:.2f}s")
+                    
+                    # Submit exploration tasks for workers to build regions in uncovered space
+                    if self.exploration_coordinator is not None:
+                        q_lower = self.iris_region_builder.q_lower
+                        q_upper = self.iris_region_builder.q_upper
+                        seeds = self.exploration_coordinator.generate_exploration_seeds(
+                            self.gcs_planner.regions, q_lower, q_upper, self.rng, count=min(4, self.num_workers * 2)
+                        )
+                        if seeds:
+                            self.exploration_coordinator.submit_tasks(seeds, interval_id=iteration)
+                            if self.logging:
+                                print(f"  [Parallel] Submitted {len(seeds)} exploration tasks", flush=True)
                     
                     gcs_start_time = time.time()
                     success = self.gcs_planner.solve_from_configs(
@@ -781,9 +809,15 @@ class OnlineGCS:
                           f"Regions: {len(self.gcs_planner.regions)}, "
                           f"GCS rate: {self.stats.gcs_success_count}/{self.stats.total_queries} "
                           f"({self.stats.gcs_success_count/self.stats.total_queries*100:.1f}%)")
-                    
+            overall_time = time.time() - overall_time
+            print(f"########### Overall time: {overall_time:.2f}s")      
         except KeyboardInterrupt:
             print("\n[KeyboardInterrupt] Stopping online GCS...")
+        finally:
+            if self.exploration_coordinator is not None:
+                self.exploration_coordinator.shutdown()
+                if self.logging:
+                    print("  [Parallel] Workers shut down", flush=True)
         
         self.print_statistics()
         return self.get_statistics()
@@ -794,6 +828,99 @@ class OnlineGCS:
         regions_dict = {f"region_{i}": r for i, r in enumerate(self.gcs_planner.regions)}
         SaveIrisRegionsYamlFile(filepath, regions_dict)
         print(f"Saved {len(self.gcs_planner.regions)} regions to {filepath}")
+
+    def run_rrt_only(self):
+        if self.visualize:
+            print(f"Visualization: ENABLED")
+            print(f"Meshcat URL: {self.meshcat.web_url()}")
+        print(f"{'='*60}\n")
+        
+        if self.visualize:
+            self._update_robot_visualization(self.current_qpos)
+            time.sleep(0.5)
+        
+        try:
+            overall_time = time.time()
+            for iteration in range(self.max_iterations):
+                
+
+                self.stats.total_queries += 1
+                
+                target_idx = self.get_random_point_from_shelf_configs()
+                target_qpos = np.array(self.shelf_configs[target_idx])
+                
+                if self.logging:
+                    print(f"\n[Iter {iteration + 1}/{self.max_iterations}] "
+                          f"Target: [{', '.join(f'{x:.2f}' for x in target_qpos[:3])}...]")
+                
+                if self.visualize:
+                    self._visualize_target_point(target_qpos)
+
+                rrt_path = self.rrt_planner.plan_bidirectional(
+                    self.current_qpos, target_qpos, goal_tolerance=0.15
+                )
+
+                if rrt_path is not None:
+                    print(iteration)
+
+                if self.visualize:
+                        self._visualize_path(rrt_path, use_gcs=False)
+
+            overall_time = time.time() - overall_time
+            print(f"########### Overall time: {overall_time:.2f}s")  
+        except KeyboardInterrupt:
+            print("\n[KeyboardInterrupt] Stopping online GCS...")
+
+    def run_opt_only(self):
+        if self.visualize:
+            print(f"Visualization: ENABLED")
+            print(f"Meshcat URL: {self.meshcat.web_url()}")
+        print(f"{'='*60}\n")
+        
+        if self.visualize:
+            self._update_robot_visualization(self.current_qpos)
+            time.sleep(0.5)
+        
+        try:
+            overall_time = time.time()
+            for iteration in range(self.max_iterations):
+
+                self.stats.total_queries += 1
+                
+                target_idx = self.get_random_point_from_shelf_configs()
+                target_qpos = np.array(self.shelf_configs[target_idx])
+                
+                if self.logging:
+                    print(f"\n[Iter {iteration + 1}/{self.max_iterations}] "
+                          f"Target: [{', '.join(f'{x:.2f}' for x in target_qpos[:3])}...]")
+                
+                if self.visualize:
+                    self._visualize_target_point(target_qpos)
+
+                rrt_path = self.rrt_planner.plan_bidirectional(
+                    self.current_qpos, target_qpos, goal_tolerance=0.15
+                )
+
+                if rrt_path is not None and len(rrt_path) >= 2:
+                    trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
+                    if self.visualize and trajopt_result.success and trajopt_result.path:
+                        trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
+                        self._visualize_path(trajopt_result.path, color=trajopt_color)
+                    if self.logging:
+                        if trajopt_result.success:
+                            print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
+                                  f"(was {trajopt_result.initial_path_length:.3f}), "
+                                  f"time: {trajopt_result.solve_time:.3f}s")
+                        else:
+                            print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
+
+                if self.visualize:
+                        self._visualize_path(rrt_path, use_gcs=False)
+
+            overall_time = time.time() - overall_time
+            print(f"########### Overall time: {overall_time:.2f}s")  
+        except KeyboardInterrupt:
+            print("\n[KeyboardInterrupt] Stopping online GCS...")
 
 
 def main():
@@ -822,6 +949,14 @@ def main():
                         help="Animation speed multiplier (default: 1.0, higher=faster)")
     parser.add_argument("--smart-keypoints", action="store_true",
                         help="Use smart keypoints") # TODO
+    parser.add_argument("--parallel", action="store_true",
+                        help="Enable parallel IRIS region exploration (background workers)")
+    parser.add_argument("--num-workers", type=int, default=2,
+                        help="Number of parallel exploration workers when --parallel (default: 2)")
+    parser.add_argument("--rrt-only", action="store_true",
+                        help="Run only RRT* path planning")
+    parser.add_argument("--opt-only", action="store_true",
+                        help="Run only optimization of RRT* path")
     args = parser.parse_args()
     
     scene_type = SceneType[args.scene]
@@ -836,6 +971,9 @@ def main():
     print(f"Prune interval: {args.prune_interval}")
     print(f"Verbose:        {args.verbose}")
     print(f"Visualize:      {args.visualize}")
+    print(f"Parallel:       {args.parallel}" + (f" ({args.num_workers} workers)" if args.parallel else ""))
+    print(f"RRT only:      {args.rrt_only}")
+    print(f"Opt only:      {args.opt_only}")
     print("=" * 60)
     
     online_gcs = OnlineGCS(
@@ -844,13 +982,20 @@ def main():
         logging=args.verbose,
         visualize=args.visualize,
         max_iterations=args.iterations,
+        parallel_exploration=args.parallel,
+        num_workers=args.num_workers,
     )
     
-    stats = online_gcs.run(
-        num_keypoints=args.keypoints,
-        prune_interval=args.prune_interval,
-        animation_speed=args.animation_speed,
-    )
+    if args.rrt_only:
+        online_gcs.run_rrt_only()
+    elif args.opt_only:
+        online_gcs.run_opt_only()
+    else:
+        stats = online_gcs.run(
+            num_keypoints=args.keypoints,
+            prune_interval=args.prune_interval,
+            animation_speed=args.animation_speed,
+        )
     
     if args.output:
         online_gcs.save_regions(args.output)
