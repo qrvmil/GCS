@@ -147,7 +147,7 @@ class GCSPathPlanner:
         return np.sum(np.linalg.norm(np.diff(positions, axis=1), axis=0))
     
     def solve(self, start_3d: np.ndarray, goal_3d: np.ndarray, 
-              order: int = 1, max_rounded_paths: int = 3,
+              order: int = 3, max_rounded_paths: int = 10,
               build_missing_regions: bool = True) -> bool:
         """
         Solve path planning from start_3d to goal_3d.
@@ -155,7 +155,7 @@ class GCSPathPlanner:
         Args:
             start_3d: Start position in 3D (end-effector)
             goal_3d: Goal position in 3D (end-effector)
-            order: Bezier curve order (1=fast, 2=smooth)
+            order: Bezier curve order (1=fast, 3=smooth/short)
             max_rounded_paths: GCS rounding parameter
             build_missing_regions: If True, build IRIS for points not in regions (SLOW!)
             
@@ -351,14 +351,16 @@ class GCSPathPlanner:
                     gcs.AddEdges(region_subgraphs[goal_nearest_idx], region_subgraphs[i])
                 print(f"  Region {i} -> target", flush=True)
         
-        gcs.AddTimeCost()
+        gcs.AddPathLengthCost()
+        gcs.AddPathEnergyCost()
+        gcs.AddTimeCost(weight=0.01)
         gcs.AddVelocityBounds(
             self.plant.GetVelocityLowerLimits(),
             self.plant.GetVelocityUpperLimits()
         )
         
         options = GraphOfConvexSetsOptions()
-        options.preprocessing = False
+        options.preprocessing = True
         options.max_rounded_paths = max_rounded_paths
         
         t0 = time.perf_counter()
@@ -382,7 +384,7 @@ class GCSPathPlanner:
         return self.success
     
     def solve_from_configs(self, q_start: np.ndarray, q_goal: np.ndarray,
-                           order: int = 1, max_rounded_paths: int = 3,
+                           order: int = 3, max_rounded_paths: int = 10,
                            build_missing_regions: bool = False,
                            start_nearest_idx: int = None, goal_nearest_idx: int = None) -> bool:
         """
@@ -391,7 +393,7 @@ class GCSPathPlanner:
         Args:
             q_start: Start configuration in joint space
             q_goal: Goal configuration in joint space
-            order: Bezier order (1=fast, 2=smooth)
+            order: Bezier order (1=fast, 3=smooth/short)
             max_rounded_paths: GCS rounding parameter
             build_missing_regions: Build IRIS if points not in regions (SLOW!)
         """

@@ -52,6 +52,9 @@ class OnlineGCSStats:
     stats_per_each_query_rrt: Dict[str, List[List[float]]] = field(default_factory=dict)
     # Dict[way_name, [path_lengths, times, successes]]
     stats_per_each_query_trajopt: Dict[str, List[List[float]]] = field(default_factory=dict)
+    # Dict[way_name, List[dict]] — quality metrics per query (jerk, smoothness, energy, max_accel)
+    stats_gcs_quality: Dict[str, List[Dict[str, float]]] = field(default_factory=dict)
+    stats_trajopt_quality: Dict[str, List[Dict[str, float]]] = field(default_factory=dict)
 
 
 class OnlineGCS:
@@ -133,7 +136,59 @@ class OnlineGCS:
         if point is None:
             return False
         return self.gcs_planner._find_containing_region(point) != -1
-    
+
+    @staticmethod
+    def _compute_trajectory_metrics(traj, num_samples: int = 500) -> Dict[str, float]:
+        """Compute *arc-length-parameterised* quality metrics so that the
+        comparison does not depend on how fast the trajectory is traversed.
+
+        Returns curvature (∝ acceleration at unit speed) and torsion
+        (∝ jerk at unit speed) — purely geometric properties of the path.
+        """
+        t0 = traj.start_time()
+        tf = traj.end_time()
+        duration = tf - t0
+        zeros = {"curv_max": 0.0, "curv_integral": 0.0,
+                 "torsion_max": 0.0, "torsion_integral": 0.0,
+                 "path_length": 0.0}
+        if duration < 1e-10:
+            return zeros
+
+        times = np.linspace(t0, tf, num_samples)
+        positions = np.column_stack([traj.value(t).flatten() for t in times])
+
+        seg_lens = np.linalg.norm(np.diff(positions, axis=1), axis=0)
+        cum_len = np.concatenate([[0.0], np.cumsum(seg_lens)])
+        total_len = cum_len[-1]
+        if total_len < 1e-10:
+            return zeros
+
+        target_s = np.linspace(0.0, total_len, num_samples)
+        nq = positions.shape[0]
+        resampled = np.zeros((nq, num_samples))
+        for i in range(num_samples):
+            idx = int(np.searchsorted(cum_len, target_s[i], side="right")) - 1
+            idx = min(max(idx, 0), len(cum_len) - 2)
+            seg = cum_len[idx + 1] - cum_len[idx]
+            alpha = (target_s[i] - cum_len[idx]) / seg if seg > 1e-12 else 0.0
+            resampled[:, i] = (1.0 - alpha) * positions[:, idx] + alpha * positions[:, idx + 1]
+
+        ds = target_s[1] - target_s[0] if num_samples > 1 else 1.0
+        d1 = np.diff(resampled, axis=1) / ds
+        d2 = np.diff(d1, axis=1) / ds
+        d3 = np.diff(d2, axis=1) / ds
+
+        curv = np.linalg.norm(d2, axis=0)
+        tors = np.linalg.norm(d3, axis=0)
+
+        return {
+            "curv_max": float(np.max(curv)) if len(curv) else 0.0,
+            "curv_integral": float(np.sum(curv) * ds),
+            "torsion_max": float(np.max(tors)) if len(tors) else 0.0,
+            "torsion_integral": float(np.sum(tors) * ds),
+            "path_length": float(total_len),
+        }
+
     # ==================== VISUALIZATION METHODS ====================
     
     def _setup_visualization(self):
@@ -529,6 +584,23 @@ class OnlineGCS:
                 print(f"  IRIS build time for {way}: {iris_build_time:.5f}s")
             else:
                 print(f"  IRIS build time for {way}: 0.00s (regions from other paths)")
+
+            # --- Trajectory quality metrics (arc-length-normalised) ---
+            gcs_qlist = self.stats.stats_gcs_quality.get(way, [])
+            topt_qlist = self.stats.stats_trajopt_quality.get(way, [])
+            if gcs_qlist or topt_qlist:
+                for metric_key, label in [
+                    ("curv_max",       "Max curvature"),
+                    ("curv_integral",  "Total curvature (∫κ ds)"),
+                    ("torsion_max",    "Max torsion"),
+                    ("torsion_integral", "Total torsion"),
+                ]:
+                    gcs_val = np.mean([m[metric_key] for m in gcs_qlist]) if gcs_qlist else None
+                    topt_val = np.mean([m[metric_key] for m in topt_qlist]) if topt_qlist else None
+                    gcs_s = f"{gcs_val:.4f}" if gcs_val is not None else "N/A"
+                    topt_s = f"{topt_val:.4f}" if topt_val is not None else "N/A"
+                    print(f"  {label}: GCS={gcs_s}  Opt={topt_s}")
+
         print(f"{'='*50}\n")
     
     def prune_redundant_regions(self) -> int:
@@ -725,48 +797,51 @@ class OnlineGCS:
 
                 current_way_name = f'{self.current_idx}-{target_idx}'
                 # ================== start opt baseline ================
-                # rrt_start_time = time.time()
-                # rrt_path = self.rrt_planner.plan_bidirectional(
-                #     self.current_qpos, target_qpos, goal_tolerance=0.15
-                # )
-                # if rrt_path is None:
-                #     rrt_path = self.rrt_planner.plan(
-                #         self.current_qpos, target_qpos, goal_tolerance=0.15
-                #     )
-                # rrt_time = time.time() - rrt_start_time
-                # if current_way_name not in self.stats.stats_per_each_query_rrt:
-                #     self.stats.stats_per_each_query_rrt[current_way_name] = [[], []]
-                # self.stats.stats_per_each_query_rrt[current_way_name][0].append(
-                #     self.rrt_planner.path_length if rrt_path is not None else 0.0
-                # )
-                # self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
+                rrt_start_time = time.time()
+                rrt_path = self.rrt_planner.plan_bidirectional(
+                    self.current_qpos, target_qpos, goal_tolerance=0.15
+                )
+                if rrt_path is None:
+                    rrt_path = self.rrt_planner.plan(
+                        self.current_qpos, target_qpos, goal_tolerance=0.15
+                    )
+                rrt_time = time.time() - rrt_start_time
+                if current_way_name not in self.stats.stats_per_each_query_rrt:
+                    self.stats.stats_per_each_query_rrt[current_way_name] = [[], []]
+                self.stats.stats_per_each_query_rrt[current_way_name][0].append(
+                    self.rrt_planner.path_length if rrt_path is not None else 0.0
+                )
+                self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
 
-                # # --- Optimization baseline: optimize the RRT path ---
-                # if rrt_path is not None and len(rrt_path) >= 2:
-                #     trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
-                #     if current_way_name not in self.stats.stats_per_each_query_trajopt:
-                #         self.stats.stats_per_each_query_trajopt[current_way_name] = [[], [], []]
-                #     self.stats.stats_per_each_query_trajopt[current_way_name][0].append(
-                #         trajopt_result.path_length if trajopt_result.success else 0.0
-                #     )
-                #     self.stats.stats_per_each_query_trajopt[current_way_name][1].append(
-                #         trajopt_result.solve_time
-                #     )
-                #     self.stats.stats_per_each_query_trajopt[current_way_name][2].append(
-                #         float(trajopt_result.success)
-                #     )
-                #     if self.visualize and trajopt_result.success and trajopt_result.path:
-                #         trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
-                #         self._visualize_path(trajopt_result.path, color=trajopt_color)
-                #     if self.logging:
-                #         if trajopt_result.success:
-                #             print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
-                #                   f"(was {trajopt_result.initial_path_length:.3f}), "
-                #                   f"time: {trajopt_result.solve_time:.3f}s")
-                #         else:
-                #             print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
+                # --- Optimization baseline: optimize the RRT path ---
+                if rrt_path is not None and len(rrt_path) >= 2:
+                    trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
+                    if current_way_name not in self.stats.stats_per_each_query_trajopt:
+                        self.stats.stats_per_each_query_trajopt[current_way_name] = [[], [], []]
+                    self.stats.stats_per_each_query_trajopt[current_way_name][0].append(
+                        trajopt_result.path_length if trajopt_result.success else 0.0
+                    )
+                    self.stats.stats_per_each_query_trajopt[current_way_name][1].append(
+                        trajopt_result.solve_time
+                    )
+                    self.stats.stats_per_each_query_trajopt[current_way_name][2].append(
+                        float(trajopt_result.success)
+                    )
+                    if trajopt_result.success and trajopt_result.trajectory is not None:
+                        topt_qm = self._compute_trajectory_metrics(trajopt_result.trajectory)
+                        self.stats.stats_trajopt_quality.setdefault(current_way_name, []).append(topt_qm)
+                    if self.visualize and trajopt_result.success and trajopt_result.path:
+                        trajopt_color = Rgba(0.8, 0.2, 0.8, 0.7)
+                        self._visualize_path(trajopt_result.path, color=trajopt_color)
+                    if self.logging:
+                        if trajopt_result.success:
+                            print(f"  TrajOpt path length: {trajopt_result.path_length:.3f} "
+                                  f"(was {trajopt_result.initial_path_length:.3f}), "
+                                  f"time: {trajopt_result.solve_time:.3f}s")
+                        else:
+                            print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
 
-                # start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
+                start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
                 # ================== end opt baseline ================
                 goal_in_gcs = self.check_if_point_in_iris_regions(target_qpos)
 
@@ -801,6 +876,10 @@ class OnlineGCS:
                         if current_way_name not in self.stats.stats_per_way_iris_build_time:
                             self.stats.stats_per_way_iris_build_time[current_way_name] = []
                         self.stats.stats_per_way_iris_build_time[current_way_name].append(0.0)
+
+                        if self.gcs_planner.trajectory is not None:
+                            gcs_qm = self._compute_trajectory_metrics(self.gcs_planner.trajectory)
+                            self.stats.stats_gcs_quality.setdefault(current_way_name, []).append(gcs_qm)
 
                         self.current_qpos = target_qpos.copy()
                         self.current_idx = target_idx
@@ -881,7 +960,11 @@ class OnlineGCS:
                         self.stats.stats_per_each_query_gcs[current_way_name][0].append(self.gcs_planner.path_length)
                         self.stats.stats_per_each_query_gcs[current_way_name][1].append(gcs_time)
                         self.stats.stats_per_each_query_gcs[current_way_name][2].append(gcs_vanilla_time)
-                        
+
+                        if self.gcs_planner.trajectory is not None:
+                            gcs_qm = self._compute_trajectory_metrics(self.gcs_planner.trajectory)
+                            self.stats.stats_gcs_quality.setdefault(current_way_name, []).append(gcs_qm)
+
                         self.current_qpos = target_qpos.copy()
                         self.current_idx = target_idx
                         if self.logging:
