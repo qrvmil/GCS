@@ -44,6 +44,8 @@ class OnlineGCSStats:
     total_regions_after_pruning: int = 0
     total_keypoints_requested: int = 0
     total_iris_regions_built: int = 0
+    warmstart_time: float = 0.0
+    warmstart_regions: int = 0
     stats_per_way_iris_build_time: Dict[str, List[float]] = field(default_factory=dict)
     # Dict[way_name, [path_lengths, times]]
     stats_per_each_query_gcs: Dict[str, List[List[float]]] = field(default_factory=dict)
@@ -55,7 +57,9 @@ class OnlineGCSStats:
 class OnlineGCS:
     def __init__(self, scene_type: SceneType, random_seed: int = 42,
                  logging: bool = False, visualize: bool = False, smart_keypoints: bool = False,
-                 max_iterations: int = 100, parallel_exploration: bool = False, num_workers: int = 2):
+                 max_iterations: int = 100, parallel_exploration: bool = False, num_workers: int = 2,
+                 k_shortest_paths: int = 1,
+                 warmstart: bool = False, warmstart_seeds: int = 15):
         self.scene_type = scene_type
         self.rng = np.random.default_rng(random_seed)
         self.random_seed = random_seed
@@ -65,6 +69,9 @@ class OnlineGCS:
         self.smart_keypoints = smart_keypoints
         self.parallel_exploration = parallel_exploration
         self.num_workers = num_workers
+        self.k_shortest_paths = k_shortest_paths
+        self.warmstart = warmstart
+        self.warmstart_seeds = warmstart_seeds
 
         self.exploration_coordinator: Optional[ParallelExplorationCoordinator] = None
         if parallel_exploration:
@@ -76,7 +83,9 @@ class OnlineGCS:
 
         self.iris_region_builder = IRISRegionBuilder(scene_type=scene_type, random_seed=random_seed)
         
-        self.gcs_planner = GCSPathPlanner.from_iris_builder(self.iris_region_builder)
+        self.gcs_planner = GCSPathPlanner.from_iris_builder(
+            self.iris_region_builder, k_shortest_paths=k_shortest_paths
+        )
         
         self.rrt_planner = RRTStarPlanner(
             scene_type=scene_type,
@@ -415,6 +424,8 @@ class OnlineGCS:
     def get_statistics(self) -> dict:
         """Return current statistics of the online GCS algorithm."""
         return {
+            "warmstart_time": self.stats.warmstart_time,
+            "warmstart_regions": self.stats.warmstart_regions,
             "regions_in_gcs": len(self.gcs_planner.regions),
             "total_regions": self.stats.total_keypoints_requested,
             "gcs_success_count": self.stats.gcs_success_count,
@@ -455,6 +466,8 @@ class OnlineGCS:
         print(f"  Total regions:      {stats['total_regions']} (keypoints requested for building)")
         print(f"  Regions added:      {stats['total_regions_added']} (IRIS regions actually built)")
         print(f"  Regions in GCS:     {stats['regions_in_gcs']} (current graph)")
+        if stats['warmstart_regions'] > 0:
+            print(f"  Warmstart regions:  {stats['warmstart_regions']} (in {stats['warmstart_time']:.1f}s)")
 
         all_ways = (
             set(self.stats.stats_per_each_query_rrt.keys())
@@ -573,6 +586,92 @@ class OnlineGCS:
         
         return result
 
+    # ==================== WARMSTART ====================
+
+    def _farthest_point_seeds(self, candidates: List[np.ndarray],
+                              n_select: int,
+                              initial_seeds: List[np.ndarray]) -> List[np.ndarray]:
+        """Pick *n_select* points from *candidates* that are maximally
+        spread out, given *initial_seeds* as already-placed centres.
+        Returns initial_seeds + newly chosen points.
+        """
+        selected = [s.copy() for s in initial_seeds]
+        if n_select <= 0 or not candidates:
+            return selected
+
+        cand = np.array(candidates)
+        used = np.zeros(len(cand), dtype=bool)
+
+        for _ in range(n_select):
+            if np.all(used):
+                break
+            sel_arr = np.array(selected)
+            dists = np.min(
+                np.linalg.norm(
+                    cand[:, np.newaxis, :] - sel_arr[np.newaxis, :, :], axis=2
+                ),
+                axis=1,
+            )
+            dists[used] = -1.0
+            best = int(np.argmax(dists))
+            if dists[best] <= 0:
+                break
+            selected.append(cand[best].copy())
+            used[best] = True
+
+        return selected
+
+    def _run_warmstart(self):
+        """Build initial IRIS regions using farthest-point sampling."""
+        print(f"\n{'='*60}")
+        print(f"Warmstart: building up to {self.warmstart_seeds} initial IRIS regions")
+        print(f"{'='*60}")
+
+        t0 = time.time()
+
+        initial_seeds: List[np.ndarray] = []
+        for cfg in self.shelf_configs:
+            q = np.array(cfg)
+            if self.iris_region_builder.is_collision_free(q):
+                initial_seeds.append(q)
+
+        if self.logging:
+            print(f"  {len(initial_seeds)} shelf configs as initial seeds", flush=True)
+
+        n_candidates = max(500, self.warmstart_seeds * 50)
+        candidates = self.iris_region_builder.sample_collision_free(
+            n_candidates, self.rng
+        )
+        if self.logging:
+            print(f"  Sampled {len(candidates)} collision-free candidates", flush=True)
+
+        n_extra = max(0, self.warmstart_seeds - len(initial_seeds))
+        all_seeds = self._farthest_point_seeds(candidates, n_extra, initial_seeds)
+
+        if self.logging:
+            print(
+                f"  Selected {len(all_seeds)} seeds "
+                f"({len(initial_seeds)} shelf + {len(all_seeds) - len(initial_seeds)} farthest-point)",
+                flush=True,
+            )
+
+        build_time = self.iris_region_builder.build_regions_from_seeds(all_seeds)
+        added = self.add_regions_to_gcs(self.iris_region_builder.regions)
+
+        total_time = time.time() - t0
+        self.stats.warmstart_time = total_time
+        self.stats.warmstart_regions = added
+
+        print(
+            f"Warmstart done: {added} regions in {total_time:.1f}s "
+            f"(IRIS build: {build_time:.1f}s)",
+            flush=True,
+        )
+        print(f"{'='*60}\n")
+        return added, total_time
+
+    # ==================== MAIN LOOP ====================
+
     def run(self, num_keypoints: int = 10, prune_interval: int = 20,
             animation_speed: float = 1.0):
         """
@@ -591,7 +690,10 @@ class OnlineGCS:
             print(f"Visualization: ENABLED")
             print(f"Meshcat URL: {self.meshcat.web_url()}")
         print(f"{'='*60}\n")
-        
+
+        if self.warmstart:
+            self._run_warmstart()
+
         if self.visualize:
             self._update_robot_visualization(self.current_qpos)
             time.sleep(0.5)
@@ -622,6 +724,7 @@ class OnlineGCS:
                     self._visualize_target_point(target_qpos)
 
                 current_way_name = f'{self.current_idx}-{target_idx}'
+                # ================== start opt baseline ================
                 # rrt_start_time = time.time()
                 # rrt_path = self.rrt_planner.plan_bidirectional(
                 #     self.current_qpos, target_qpos, goal_tolerance=0.15
@@ -638,7 +741,7 @@ class OnlineGCS:
                 # )
                 # self.stats.stats_per_each_query_rrt[current_way_name][1].append(rrt_time)
 
-                # --- Optimization baseline: optimize the RRT path ---
+                # # --- Optimization baseline: optimize the RRT path ---
                 # if rrt_path is not None and len(rrt_path) >= 2:
                 #     trajopt_result = self.trajopt_solver.optimize_rrt_path(rrt_path)
                 #     if current_way_name not in self.stats.stats_per_each_query_trajopt:
@@ -663,16 +766,17 @@ class OnlineGCS:
                 #         else:
                 #             print(f"  TrajOpt FAILED, time: {trajopt_result.solve_time:.3f}s")
 
-                start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
+                # start_in_gcs = self.check_if_point_in_iris_regions(self.current_qpos)
+                # ================== end opt baseline ================
                 goal_in_gcs = self.check_if_point_in_iris_regions(target_qpos)
 
-                if start_in_gcs and goal_in_gcs:
+                if goal_in_gcs:
                     if self.logging:
                         print(f"  Both points in GCS, trying GCS planning...")
                     
                     gcs_start_time = time.time()
                     success = self.gcs_planner.solve_from_configs(
-                        self.current_qpos, target_qpos, build_missing_regions=False
+                        self.current_qpos, target_qpos, build_missing_regions=True ## !! changed to true for testing
                     )
                     gcs_time = time.time() - gcs_start_time
                     # Vanilla GCS solve time is stored on the planner.
@@ -953,6 +1057,12 @@ def main():
                         help="Enable parallel IRIS region exploration (background workers)")
     parser.add_argument("--num-workers", type=int, default=2,
                         help="Number of parallel exploration workers when --parallel (default: 2)")
+    parser.add_argument("--k-shortest-paths", type=int, default=3,
+                        help="Number of shortest paths (Yen's algorithm) for GCS subgraph selection (default: 3)")
+    parser.add_argument("--warmstart", action="store_true",
+                        help="Build initial IRIS regions before main loop (farthest-point sampling)")
+    parser.add_argument("--warmstart-seeds", type=int, default=15,
+                        help="Number of seed points for warmstart IRIS regions (default: 15)")
     parser.add_argument("--rrt-only", action="store_true",
                         help="Run only RRT* path planning")
     parser.add_argument("--opt-only", action="store_true",
@@ -972,6 +1082,8 @@ def main():
     print(f"Verbose:        {args.verbose}")
     print(f"Visualize:      {args.visualize}")
     print(f"Parallel:       {args.parallel}" + (f" ({args.num_workers} workers)" if args.parallel else ""))
+    print(f"K shortest:     {args.k_shortest_paths}")
+    print(f"Warmstart:      {args.warmstart}" + (f" ({args.warmstart_seeds} seeds)" if args.warmstart else ""))
     print(f"RRT only:      {args.rrt_only}")
     print(f"Opt only:      {args.opt_only}")
     print("=" * 60)
@@ -984,6 +1096,9 @@ def main():
         max_iterations=args.iterations,
         parallel_exploration=args.parallel,
         num_workers=args.num_workers,
+        k_shortest_paths=args.k_shortest_paths,
+        warmstart=args.warmstart,
+        warmstart_seeds=args.warmstart_seeds,
     )
     
     if args.rrt_only:

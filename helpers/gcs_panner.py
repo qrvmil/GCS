@@ -1,6 +1,9 @@
+import heapq
 import time
+from collections import deque
+from typing import List, Optional, Set, Tuple
+
 import numpy as np
-from typing import List, Optional
 
 from pydrake.all import (
     GcsTrajectoryOptimization,
@@ -20,12 +23,14 @@ from helpers.utils import solve_IK
 
 
 class GCSPathPlanner:
-    def __init__(self, regions: List[HPolyhedron], plant, plant_context, gripper_frame=None):
+    def __init__(self, regions: List[HPolyhedron], plant, plant_context,
+                 gripper_frame=None, k_shortest_paths: int = 1):
         self.plant = plant
         self.plant_context = plant_context
         self.regions = list(regions)
         self.nq = plant.num_positions()
         self.gripper_frame = gripper_frame
+        self.k_shortest_paths = max(1, k_shortest_paths)
         
         if self.gripper_frame is None:
             try:
@@ -40,15 +45,18 @@ class GCSPathPlanner:
         self.success: bool = False
     
     @classmethod
-    def from_iris_builder(cls, iris_builder: IRISRegionBuilder) -> "GCSPathPlanner":
+    def from_iris_builder(cls, iris_builder: IRISRegionBuilder,
+                          k_shortest_paths: int = 1) -> "GCSPathPlanner":
         return cls(
             regions=iris_builder.regions,
             plant=iris_builder.plant,
             plant_context=iris_builder.plant_context,
+            k_shortest_paths=k_shortest_paths,
         )
     
     @classmethod
-    def from_yaml(cls, yaml_path: str, scene_type: SceneType) -> "GCSPathPlanner":
+    def from_yaml(cls, yaml_path: str, scene_type: SceneType,
+                  k_shortest_paths: int = 1) -> "GCSPathPlanner":
         diagram = SceneBuilder.build(scene_type)
         context = diagram.CreateDefaultContext()
         plant = diagram.GetSubsystemByName("plant")
@@ -61,6 +69,7 @@ class GCSPathPlanner:
             regions=regions,
             plant=plant,
             plant_context=plant_context,
+            k_shortest_paths=k_shortest_paths,
         )
     
     def _point_to_config(self, point_3d: np.ndarray, q_initial: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
@@ -188,43 +197,123 @@ class GCSPathPlanner:
             q_start, q_goal, order, max_rounded_paths
         )
     
-    def _get_connected_subgraph(self, start_idx: int, goal_idx: int, start_nearest_idx: int = None, goal_nearest_idx: int = None) -> Optional[List[int]]:
+    def _get_connected_subgraph(self, start_idx: int, goal_idx: int,
+                               start_nearest_idx: int = None,
+                               goal_nearest_idx: int = None) -> Optional[List[int]]:
         n = len(self.regions)
-        adj = [[] for _ in range(n)]
+        adj: List[List[int]] = [[] for _ in range(n)]
         for i in range(n):
             for j in range(i + 1, n):
                 if self.regions[i].IntersectsWith(self.regions[j]):
                     adj[i].append(j)
                     adj[j].append(i)
 
-        if adj[start_idx] == [] and start_nearest_idx is not None:
+        if not adj[start_idx] and start_nearest_idx is not None:
             adj[start_idx].append(start_nearest_idx)
             adj[start_nearest_idx].append(start_idx)
-        if adj[goal_idx] == [] and goal_nearest_idx is not None:
+        if not adj[goal_idx] and goal_nearest_idx is not None:
             adj[goal_idx].append(goal_nearest_idx)
             adj[goal_nearest_idx].append(goal_idx)
-        
-        visited = {start_idx}
-        queue = [start_idx]
-        parent = {start_idx: -1}
-        
+
+        paths = self._yen_k_shortest_paths(adj, start_idx, goal_idx,
+                                           self.k_shortest_paths)
+        if not paths:
+            return None
+
+        region_set: Set[int] = set()
+        for path in paths:
+            region_set.update(path)
+        return sorted(region_set)
+
+    # ------------------------------------------------------------------
+    #  Yen's K-shortest loopless paths  (unweighted graph via BFS)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bfs_shortest_path(adj: List[List[int]], source: int, target: int,
+                           removed_edges: Set[Tuple[int, int]] = None,
+                           removed_nodes: Set[int] = None) -> Optional[List[int]]:
+        if removed_edges is None:
+            removed_edges = set()
+        if removed_nodes is None:
+            removed_nodes = set()
+        if source in removed_nodes or target in removed_nodes:
+            return None
+
+        visited = {source}
+        queue = deque([source])
+        parent = {source: -1}
+
         while queue:
-            curr = queue.pop(0)
-            if curr == goal_idx:
-                path = []
-                node = goal_idx
+            curr = queue.popleft()
+            if curr == target:
+                path: List[int] = []
+                node = target
                 while node != -1:
                     path.append(node)
                     node = parent[node]
                 path.reverse()
                 return path
             for neighbor in adj[curr]:
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    parent[neighbor] = curr
-                    queue.append(neighbor)
-        
+                if neighbor in visited or neighbor in removed_nodes:
+                    continue
+                edge = (min(curr, neighbor), max(curr, neighbor))
+                if edge in removed_edges:
+                    continue
+                visited.add(neighbor)
+                parent[neighbor] = curr
+                queue.append(neighbor)
+
         return None
+
+    @classmethod
+    def _yen_k_shortest_paths(cls, adj: List[List[int]], source: int,
+                              target: int, k: int) -> List[List[int]]:
+        first_path = cls._bfs_shortest_path(adj, source, target)
+        if first_path is None:
+            return []
+        if k <= 1:
+            return [first_path]
+
+        A: List[List[int]] = [first_path]
+        B: List[Tuple[int, int, List[int]]] = []
+        counter = 0
+
+        for k_i in range(1, k):
+            prev_path = A[k_i - 1]
+            for i in range(len(prev_path) - 1):
+                spur_node = prev_path[i]
+                root_path = prev_path[:i + 1]
+
+                removed_edges: Set[Tuple[int, int]] = set()
+                for p in A:
+                    if len(p) > i and p[:i + 1] == root_path:
+                        edge = (min(p[i], p[i + 1]), max(p[i], p[i + 1]))
+                        removed_edges.add(edge)
+
+                removed_nodes: Set[int] = set(root_path[:-1])
+
+                spur_path = cls._bfs_shortest_path(
+                    adj, spur_node, target, removed_edges, removed_nodes
+                )
+                if spur_path is not None:
+                    candidate = root_path[:-1] + spur_path
+                    is_dup = candidate in A
+                    if not is_dup:
+                        for _, _, bp in B:
+                            if bp == candidate:
+                                is_dup = True
+                                break
+                    if not is_dup:
+                        heapq.heappush(B, (len(candidate), counter, candidate))
+                        counter += 1
+
+            if not B:
+                break
+            _, _, best = heapq.heappop(B)
+            A.append(best)
+
+        return A
     
     def _solve_gcs_internal(self, regions: List[HPolyhedron], q_start: np.ndarray, 
                             q_goal: np.ndarray, order: int, max_rounded_paths: int, start_nearest_idx: int = None, goal_nearest_idx: int = None) -> bool:

@@ -32,12 +32,12 @@ class TrajOptSolver:
         self,
         scene_type: SceneType,
         num_knots: int = 21,
-        d_min: float = 0.001,
+        d_min: float = 0.01,
         smoothness_weight: float = 1.0,
         path_length_weight: float = 0.1,
-        influence_distance: float = 0.1,
-        major_iter_limit: int = 2000,
-        feasibility_tol: float = 1e-3,
+        influence_distance: float = 0.3,
+        major_iter_limit: int = 3000,
+        feasibility_tol: float = 1e-5,
         optimality_tol: float = 1e-3,
     ):
         self.scene_type = scene_type
@@ -97,6 +97,24 @@ class TrajOptSolver:
                     min_d = p.distance
         return min_d
 
+    def _densely_check_collision(self, Q: np.ndarray,
+                                 subdivisions: int = 4) -> float:
+        """Check min distance along the path including intermediate points
+        between each pair of knots (linear interpolation)."""
+        N = Q.shape[1]
+        min_d = float("inf")
+        for k in range(N - 1):
+            for s in range(subdivisions + 1):
+                alpha = s / subdivisions
+                q = (1.0 - alpha) * Q[:, k] + alpha * Q[:, k + 1]
+                self.plant.SetPositions(self.plant_context, q)
+                sg_ctx = self.scene_graph.GetMyContextFromRoot(self.context)
+                query = self.scene_graph.get_query_output_port().Eval(sg_ctx)
+                for p in query.ComputeSignedDistancePairwiseClosestPoints():
+                    if p.distance < min_d:
+                        min_d = p.distance
+        return min_d
+
     def optimize_rrt_path(self, rrt_path: List[np.ndarray]) -> TrajOptResult:
         t0 = time.perf_counter()
 
@@ -144,26 +162,55 @@ class TrajOptSolver:
             plant_context=self.plant_context,
             influence_distance_offset=self.influence_distance,
         )
+
+        # Collision constraints at every knot point
         for k in range(N):
             prog.AddConstraint(collision_constraint, Q[:, k])
 
-        snopt_id = SnoptSolver().id()
+        # Midpoint auxiliary variables — collision checking between knots
+        M = prog.NewContinuousVariables(nq, N - 1, "M")
+        Aeq_mid = np.hstack([I_nq, -0.5 * I_nq, -0.5 * I_nq])
+        beq_mid = np.zeros(nq)
+
+        for k in range(N - 1):
+            prog.SetInitialGuess(M[:, k], 0.5 * (seed[:, k] + seed[:, k + 1]))
+            prog.AddBoundingBoxConstraint(self.q_lower, self.q_upper, M[:, k])
+            vars_mid = np.concatenate([M[:, k], Q[:, k], Q[:, k + 1]])
+            prog.AddLinearEqualityConstraint(Aeq_mid, beq_mid, vars_mid)
+            prog.AddConstraint(collision_constraint, M[:, k])
+
+        snopt = SnoptSolver()
+        snopt_id = snopt.id()
         prog.SetSolverOption(snopt_id, "Major iterations limit", self.major_iter_limit)
         prog.SetSolverOption(snopt_id, "Major feasibility tolerance", self.feasibility_tol)
         prog.SetSolverOption(snopt_id, "Major optimality tolerance", self.optimality_tol)
 
-        result = SnoptSolver().Solve(prog)
+        result = snopt.Solve(prog)
         solve_time = time.perf_counter() - t0
 
         snopt_info = result.get_solver_details().info
-        usable = result.is_success() or snopt_info in (1, 2, 3)
+        usable = result.is_success() or snopt_info in (1, 2)
 
         if usable:
             Q_opt = result.GetSolution(Q)
-            path_opt = [Q_opt[:, k].copy() for k in range(N)]
             opt_length = self._path_length_from_matrix(Q_opt)
-            min_dist = self._check_min_distance_along(Q_opt)
+            min_dist = self._densely_check_collision(Q_opt, subdivisions=4)
 
+            if min_dist < 0:
+                print(
+                    f"[Opt solver] REJECTED (collision)  min_dist={min_dist:.4f}  "
+                    f"time={solve_time:.3f}s  snopt_info={snopt_info}",
+                    flush=True,
+                )
+                return TrajOptResult(
+                    success=False,
+                    solve_time=solve_time,
+                    initial_path_length=initial_path_length,
+                    min_distance=min_dist,
+                    solver_info=f"Rejected: collision min_dist={min_dist:.4f}",
+                )
+
+            path_opt = [Q_opt[:, k].copy() for k in range(N)]
             times = np.linspace(0.0, 1.0, N)
             trajectory = PiecewisePolynomial.FirstOrderHold(times, Q_opt)
 
