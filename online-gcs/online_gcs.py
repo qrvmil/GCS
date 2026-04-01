@@ -137,13 +137,11 @@ class OnlineGCS:
             return False
         return self.gcs_planner._find_containing_region(point) != -1
 
-    @staticmethod
-    def _compute_trajectory_metrics(traj, num_samples: int = 500) -> Dict[str, float]:
+    def _compute_trajectory_metrics(self, traj, num_samples: int = 500) -> Dict[str, float]:
         """Compute *arc-length-parameterised* quality metrics so that the
         comparison does not depend on how fast the trajectory is traversed.
 
-        Returns curvature (∝ acceleration at unit speed) and torsion
-        (∝ jerk at unit speed) — purely geometric properties of the path.
+        Returns curvature, torsion (geometric).
         """
         t0 = traj.start_time()
         tf = traj.end_time()
@@ -183,9 +181,9 @@ class OnlineGCS:
 
         return {
             "curv_max": float(np.max(curv)) if len(curv) else 0.0,
-            "curv_integral": float(np.sum(curv) * ds),
+            "curv_integral": float(np.trapz(curv, dx=ds)),
             "torsion_max": float(np.max(tors)) if len(tors) else 0.0,
-            "torsion_integral": float(np.sum(tors) * ds),
+            "torsion_integral": float(np.trapz(tors, dx=ds)),
             "path_length": float(total_len),
         }
 
@@ -558,9 +556,9 @@ class OnlineGCS:
                 print(f"  GCS vanilla time for {way}: N/A")
 
             if trajopt_time is not None:
-                print(f"  TrajOpt time for {way}: {trajopt_time:.5f}s")
+                print(f"  Opt time for {way}: {trajopt_time:.5f}s")
             else:
-                print(f"  TrajOpt time for {way}: N/A")
+                print(f"  Opt time for {way}: N/A")
 
             if rrt_path_len is not None:
                 print(f"  RRT path length for {way}: {rrt_path_len:.2f}")
@@ -590,9 +588,9 @@ class OnlineGCS:
             topt_qlist = self.stats.stats_trajopt_quality.get(way, [])
             if gcs_qlist or topt_qlist:
                 for metric_key, label in [
-                    ("curv_max",       "Max curvature"),
-                    ("curv_integral",  "Total curvature (∫κ ds)"),
-                    ("torsion_max",    "Max torsion"),
+                    ("curv_max",         "Max curvature"),
+                    ("curv_integral",    "Total curvature (∫κ ds)"),
+                    ("torsion_max",      "Max torsion"),
                     ("torsion_integral", "Total torsion"),
                 ]:
                     gcs_val = np.mean([m[metric_key] for m in gcs_qlist]) if gcs_qlist else None
@@ -763,6 +761,7 @@ class OnlineGCS:
             print(f"Meshcat URL: {self.meshcat.web_url()}")
         print(f"{'='*60}\n")
 
+
         if self.warmstart:
             self._run_warmstart()
 
@@ -772,6 +771,7 @@ class OnlineGCS:
         
         try:
             overall_time = time.time()
+            
             for iteration in range(self.max_iterations):
                 # Harvest any regions built by parallel workers
                 if self.exploration_coordinator is not None:
@@ -913,7 +913,9 @@ class OnlineGCS:
                         print(f"  Building IRIS regions from {len(keypoints)} keypoints...")
                     
                     self.stats.total_keypoints_requested += len(keypoints)
-                    build_time = self.iris_region_builder.build_regions_from_seeds(keypoints)
+                    build_time = self.iris_region_builder.build_regions_from_seeds(
+                        keypoints, existing_regions=self.gcs_planner.regions
+                    )
                     num_built = len(self.iris_region_builder.regions)
                     self.stats.total_iris_regions_built += num_built
                     if current_way_name not in self.stats.stats_per_way_iris_build_time:

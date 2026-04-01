@@ -268,23 +268,23 @@ class IRISRegionBuilder:
         return self.build_time
     
     def build_regions_from_seeds(self, seed_configs: List[np.ndarray],
-                                 collision_samples: int = 3) -> float:
+                                 collision_samples: int = 3,
+                                 existing_regions: Optional[List[HPolyhedron]] = None) -> float:
         """
         Build IRIS regions from provided seed configurations.
-        
-        Args:
-            seed_configs: List of seed configurations to build regions around
-            collision_samples: Number of collision samples for IRIS
-            
-        Returns:
-            Total build time in seconds
+        Seeds already covered by *existing_regions* or by regions built
+        earlier in this batch are skipped.
         """
         self.seed_configs = [q.copy() for q in seed_configs]
         self.regions = []
         self.build_time = 0.0
+
+        all_regions: List[HPolyhedron] = list(existing_regions) if existing_regions else []
+        skipped = 0
         
         for i, q in enumerate(self.seed_configs):
-            if i > 0 and any(region.PointInSet(q) for region in self.regions):
+            if any(region.PointInSet(q) for region in all_regions):
+                skipped += 1
                 continue
             self.plant.SetPositions(self.plant_context, q)
             
@@ -297,9 +297,11 @@ class IRISRegionBuilder:
             try:
                 region = IrisNp(self.plant, self.plant_context, opts)
                 self.regions.append(region)
+                all_regions.append(region)
             except Exception:
                 pass
             self.build_time += time.perf_counter() - t0
         
-        print(f"  Built {len(self.regions)} regions from {len(seed_configs)} seeds in {self.build_time:.1f}s", flush=True)
+        print(f"  Built {len(self.regions)} regions from {len(seed_configs)} seeds "
+              f"(skipped {skipped}) in {self.build_time:.1f}s", flush=True)
         return self.build_time
