@@ -67,6 +67,9 @@ class OnlineGCS:
         warmstart: bool = False,
         warmstart_seeds: int = 15,
     ):
+        if max_iterations < 1:
+            raise ValueError("max_iterations must be at least 1")
+
         self.scene_type = scene_type
         self.rng = np.random.default_rng(random_seed)
         self.random_seed = random_seed
