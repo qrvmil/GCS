@@ -1,0 +1,16 @@
+.venv
+.worktrees/
+black/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.gz
+*.bcf
+*.toc
+/rrt_gcs_results/
+/iris_results/
+/gcs_results/
+*/logs
+__pycache__
+black.ipynb
