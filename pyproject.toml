@@ -56,4 +56,3 @@ files = [
   "src/online_gcs/metrics.py",
   "src/online_gcs/cli.py",
 ]
-
