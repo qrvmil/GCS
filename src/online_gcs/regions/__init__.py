@@ -1,0 +1,1 @@
+"""Convex-region construction utilities."""

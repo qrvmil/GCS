@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a focused improvement to GCS
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What planning workflow is difficult today, and who would benefit?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the desired behavior and a minimal example command or API call.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or related approaches have you tried?
+  - type: input
+    id: platform
+    attributes:
+      label: Target platform
+      placeholder: "For example: Ubuntu 24.04, Python 3.12, Drake 1.46"
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help implement or test this change.
