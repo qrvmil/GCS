@@ -1,16 +1,49 @@
-.venv
-.worktrees/
-black/
+# Local environments and private archive
+.venv/
+.local/
+
+# Python/build/test
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+site/
+*.egg-info/
+
+# OS/editor/cache
+.DS_Store
+.cache/
+.matplotlib-cache/
+.idea/
+.vscode/
+
+# Research and generated outputs
+artifacts/
+results/
+**/results/
+**/logs/
+*.csv
+*.log
+*.ipynb
+*.pdf
+*.tex
 *.aux
+*.bbl
+*.bcf
+*.blg
 *.fdb_latexmk
 *.fls
-*.log
-*.gz
-*.bcf
+*.run.xml
+*.synctex.gz
 *.toc
-/rrt_gcs_results/
-/iris_results/
-/gcs_results/
-*/logs
-__pycache__
-black.ipynb
+*.doc
+*.docm
+*.docx
+
+# Unverified optional baseline kept only in the local archive
+trajopt_baseline/
