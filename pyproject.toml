@@ -41,6 +41,8 @@ markers = [
   "drake: tests that construct Drake systems or diagrams",
   "unit: fast tests that do not require external services",
   "integration: tests that exercise multiple components",
+  "slow: tests that can take more than a few seconds",
+  "visualization: tests that launch or exercise Meshcat visualization",
 ]
 
 [tool.coverage.run]
