@@ -1,4 +1,5 @@
 from pathlib import Path
+import tomllib
 
 import yaml
 
@@ -18,3 +19,9 @@ def test_citation_matches_release() -> None:
 
 def test_typed_package_marker_is_present() -> None:
     assert Path("src/online_gcs/py.typed").is_file()
+
+
+def test_mypy_checks_declared_entry_points_without_traversing_drake_internals() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["tool"]["mypy"]["follow_imports"] == "skip"

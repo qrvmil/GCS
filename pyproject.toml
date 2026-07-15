@@ -59,6 +59,7 @@ output = "coverage.xml"
 
 [tool.mypy]
 python_version = "3.12"
+follow_imports = "skip"
 files = [
   "src/online_gcs/config.py",
   "src/online_gcs/metrics.py",
