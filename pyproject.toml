@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "online-gcs-planner"
+version = "0.1.0"
+description = "Online Graphs of Convex Sets motion planning"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+  "drake>=1.46,<2",
+  "manipulation>=2025.10.20",
+  "numpy>=2,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.scripts]
+online-gcs = "online_gcs.cli:main"
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "mypy>=1.15", "pytest>=8", "pytest-cov>=6", "ruff>=0.9", "twine>=6"]
+docs = ["mkdocs-material>=9.6", "mkdocstrings[python]>=0.28"]
+experiments = ["matplotlib>=3.10", "pandas>=2.2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/online_gcs"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/online_gcs/resources/shelf_cspace_positions.yaml" = "online_gcs/resources/shelf_cspace_positions.yaml"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "unit: fast tests that do not require external services",
+  "integration: tests that exercise multiple components",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/online_gcs"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+  "src/online_gcs/config.py",
+  "src/online_gcs/metrics.py",
+  "src/online_gcs/cli.py",
+]
+
