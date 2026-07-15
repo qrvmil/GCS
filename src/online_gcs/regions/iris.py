@@ -178,7 +178,7 @@ class IRISRegionBuilder:
         try:
             wsg = self.plant.GetModelInstanceByName("gripper")
             gripper_frame = self.plant.GetFrameByName("body", wsg)
-        except:
+        except BaseException:
             return None
         
         self.plant.SetPositions(self.plant_context, q_initial)

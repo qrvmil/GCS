@@ -1,7 +1,7 @@
 import time
 import multiprocessing
 import queue
-from typing import List, Optional, Any
+from typing import Any, List
 
 import numpy as np
 from pydrake.all import HPolyhedron, IrisOptions, IrisNp
@@ -106,7 +106,6 @@ class ParallelExplorationCoordinator:
         rng: np.random.Generator,
         count: int,
     ) -> List[np.ndarray]:
-        nq = len(q_lower)
         seeds = []
         attempts = 0
         max_attempts = count * 50

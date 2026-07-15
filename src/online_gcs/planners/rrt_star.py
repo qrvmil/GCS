@@ -9,7 +9,7 @@ Implements RRT* algorithm with:
 
 import time
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from dataclasses import dataclass
 
 from online_gcs.scenes import SceneBuilder, SceneType

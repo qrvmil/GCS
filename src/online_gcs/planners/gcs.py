@@ -16,7 +16,7 @@ from pydrake.all import (
 )
 from pydrake.geometry.optimization import Point
 
-from helpers.iris_region_builder import IRISRegionBuilder
+from online_gcs.regions.iris import IRISRegionBuilder
 from online_gcs.scenes import SceneBuilder, SceneType
 from online_gcs.utils import solve_IK
 
@@ -35,7 +35,7 @@ class GCSPathPlanner:
             try:
                 wsg = self.plant.GetModelInstanceByName("gripper")
                 self.gripper_frame = self.plant.GetFrameByName("body", wsg)
-            except:
+            except BaseException:
                 pass
         
         self.trajectory: Optional[CompositeTrajectory] = None
@@ -105,7 +105,7 @@ class GCSPathPlanner:
         try:
             region = IrisNp(self.plant, self.plant_context, opts)
             return region
-        except Exception as e:
+        except Exception:
             try:
                 opts = IrisOptions()
                 opts.num_collision_infeasible_samples = 10
