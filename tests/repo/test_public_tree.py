@@ -1,5 +1,9 @@
 import subprocess
+import sys
 import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.check_public_tree import find_forbidden_tracked
 
