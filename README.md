@@ -1,153 +1,154 @@
-# GCS
+[English](README.md) | [Русский](README.ru.md)
 
-Репозиторий с исследовательским кодом по планированию движения манипулятора с использованием **Graph of Convex Sets (GCS)** и **IRIS-регионов** в пространстве конфигураций.
+# Online GCS
 
-Основной сценарий проекта: **онлайн-планирование**. Система постепенно строит покрытие пространства конфигураций IRIS-регионами, добавляет их в граф GCS и использует этот граф для все более быстрых последующих запросов на планирование траектории.
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-6f42c1.svg)](CHANGELOG.md)
 
-## Основные компоненты
+Online motion planning for robot manipulation that expands a Graph of Convex Sets
+only when a query needs new collision-free regions.
 
-- **Online GCS planner**: основной онлайн-алгоритм в `online-gcs/online_gcs.py`.
-- **GCS-планирование**: поиск траектории по графу уже построенных выпуклых регионов.
-- **RRT* fallback**: если текущий запрос нельзя сразу решить через GCS, строится путь через RRT*.
-- **Онлайн-расширение покрытия**: по ключевым точкам RRT-пути строятся новые IRIS-регионы, которые добавляются в GCS.
-- **Warm start**: предварительное построение стартового набора IRIS-регионов до основного цикла.
-- **Parallel exploration**: фоновое параллельное построение новых регионов (в итоговом пайплайне не используется, было рассмотрено в исследовательских экспериментах).
-- **Meshcat-визуализация**: визуализация сцены, целевых позиций и найденных траекторий.
+![Robot arm in the single-shelf scene](docs/assets/scenes/single-shelf.png)
 
-Идея пайплайна такая:
+## Overview
 
-1. Выбирается следующая целевая конфигурация.
-2. Если цель уже покрыта текущим графом регионов, пробуем решить задачу напрямую через GCS.
-3. Если не получается, запускается RRT*.
-4. По найденному пути выбираются keypoints.
-5. Вокруг keypoints строятся новые IRIS-регионы.
-6. Регионы добавляются в граф, после чего снова пробуется GCS.
+Online GCS combines [Drake](https://drake.mit.edu/)'s Graphs of Convex Sets (GCS),
+IRIS regions, RRT*, and TrajOpt. The standard run evaluates RRT* on every query and
+TrajOpt whenever that baseline finds a path, then checks the current convex-region
+graph. When GCS coverage is insufficient, it grows the graph around useful points
+from an RRT* path and retries GCS.
 
-## Подготовка окружения
+The repository provides the installable `online-gcs-planner` package, the
+`online-gcs` command, a typed public Python API, deterministic examples, tests,
+and matching English and Russian documentation.
 
-Минимум, который уже описан там:
+## Why online GCS?
 
-```bash
-/opt/homebrew/opt/python@3.12/bin/python3.12 -m venv .venv
-. .venv/bin/activate
-```
+A static GCS planner needs a useful convex cover before queries arrive. Building a
+large cover up front can be expensive, while a small cover may not connect a new
+start and goal. This project explores a middle ground: reuse regions that already
+exist and expand the graph along a successful sampling-based path only after a
+query exposes a gap.
 
-Проект использует Python `3.12` и зависит от экосистемы Drake / `pydrake`, а также от `numpy`, `PyYAML` и связанных модулей для визуализации и планирования.
+This is research software. The repository does not claim that the online strategy
+outperforms every static or sampling-based planner; the included scripts and
+fixed seeds are intended to make its behavior inspectable and reproducible.
 
-## Основной запуск
+## How it works
 
-Запускать проект нужно **из корня репозитория**.
+![Online GCS planning pipeline: query, RRT-star and TrajOpt baselines, GCS check, keypoints, IRIS, graph update, and GCS retry](docs/assets/pipeline.svg)
 
-Основная команда:
+For every query, the standard run first executes an RRT* baseline and, when a path
+exists, a TrajOpt baseline to collect comparative metrics. It then tries the current
+GCS graph. If coverage or the GCS solve is insufficient, the fallback branch
+refreshes the bidirectional RRT* path before selected keypoints seed new IRIS
+regions; those regions are added to the graph and GCS is retried. Later queries can
+reuse the expanded cover.
 
-```bash
-python -m online-gcs.online_gcs --scene TWO_SHELVES --iterations 50 --keypoints 20 --seed 54 --warmstart
-```
+Consequently, standard-run time includes RRT* and usually TrajOpt baseline work even
+when GCS succeeds. TrajOpt execution and the `--opt-only` mode depend on a compatible
+solver being available; IRIS expansion adds further runtime only when it is needed.
 
-Это запускает онлайн-планирование для сцены с двумя полками, выполняет `50` запросов, использует `20` ключевых точек при расширении покрытия и включает предварительный warm start.
+## Quick start
 
-## Примеры запуска
-
-Базовый запуск:
-
-```bash
-python -m online-gcs.online_gcs --scene SINGLE_SHELF
-```
-
-Запуск с подробными логами:
+Python 3.12 is required. From the repository root:
 
 ```bash
-python -m online-gcs.online_gcs --scene SINGLE_SHELF --iterations 30 --keypoints 10 --verbose
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+online-gcs --scene SINGLE_SHELF --iterations 1 --keypoints 2 --prune-interval 0
 ```
 
-Запуск с визуализацией через Meshcat:
+The first run may download robot models used by Drake and `manipulation`. See the
+[installation guide](docs/en/installation.md) for development and documentation
+extras.
+
+## Python API
+
+The same deterministic one-query run is available through the public API:
+
+```python
+from online_gcs import OnlineGCS, SceneType
+
+planner = OnlineGCS(
+    scene_type=SceneType.SINGLE_SHELF,
+    random_seed=42,
+    max_iterations=1,
+)
+summary = planner.run(num_keypoints=2, prune_interval=0)
+print(summary["total_queries"])
+```
+
+`OnlineGCS`, `OnlineGCSStats`, `GCSPathPlanner`, `RRTStarPlanner`,
+`IRISRegionBuilder`, and `SceneType` form the public surface for version `0.1.0`.
+See the [API reference](docs/en/api.md) for details.
+
+## Demo and scenes
+
+| Single shelf | Two shelves | Table with three shelves |
+|:--:|:--:|:--:|
+| ![Single-shelf planning scene](docs/assets/scenes/single-shelf.png) | ![Two-shelf planning scene](docs/assets/scenes/two-shelves.png) | ![Table and three-shelf planning scene](docs/assets/scenes/three-shelves.png) |
+| `SINGLE_SHELF` | `TWO_SHELVES` | `TABLE_THREE_SHELVES` |
+
+Run the deterministic non-visual and Meshcat examples with:
 
 ```bash
-python -m online-gcs.online_gcs --scene TWO_SHELVES --visualize --warmstart
+python examples/minimal_online.py
+python examples/visualize_single_shelf.py
 ```
 
-После запуска с `--visualize` скрипт печатает `Meshcat URL`, который можно открыть в браузере.
+## Reproducibility
 
-Запуск только RRT* baseline:
+Examples use an explicit random seed. Generated regions and experiment output must
+go only to ignored `artifacts/` or `results/` directories. A compact verification
+run is:
 
 ```bash
-python -m online-gcs.online_gcs --scene TWO_SHELVES --iterations 50 --rrt-only
+python scripts/check_public_tree.py
+pytest tests/unit tests/repo
+ruff check .
+mkdocs build --strict
 ```
 
-Запуск только оптимизации RRT-пути:
+See [Reproducibility](docs/en/reproducibility.md) for supported checks and the
+boundary between examples and research experiments.
 
-```bash
-python -m online-gcs.online_gcs --scene TWO_SHELVES --iterations 50 --opt-only
-```
+## Project status and limitations
 
-Сохранение построенных IRIS-регионов в YAML:
+Version `0.1.0` is a pre-1.0 research release; public interfaces may still change.
+IRIS region construction can be slow, especially in harder scenes. The first
+Drake/`manipulation` run may fetch model assets. Trajectory optimization depends
+on a compatible solver being available in the local Drake installation. Runtime
+also varies with the scene, seed, platform, and solver.
 
-```bash
-python -m online-gcs.online_gcs --scene TWO_SHELVES --iterations 50 --warmstart --output experiments/iris_regions/custom_regions.yaml
-```
+The supported release target is Python 3.12. See
+[Troubleshooting](docs/en/troubleshooting.md) before reporting installation,
+solver, or Meshcat issues.
 
-## Поддерживаемые сцены
+## Documentation
 
-- `SINGLE_SHELF`
-- `TWO_SHELVES`
-- `TABLE_THREE_SHELVES`
+The full documentation is available in [English](docs/en/index.md) and
+[Russian](docs/ru/index.md). It covers installation, the planning concepts,
+architecture, CLI and API usage, examples, and troubleshooting. The language
+selector is available on every page of the built MkDocs site.
 
-## Основные аргументы
+## Contributing
 
-- `--scene` - тип сцены.
-- `--iterations` - число онлайн-итераций / запросов.
-- `--keypoints` - число keypoints, извлекаемых из RRT-пути для последующего построения IRIS-регионов.
-- `--seed` - random seed.
-- `--prune-interval` - как часто удалять избыточные регионы; значение `0` отключает pruning.
-- `--output` - путь, куда сохранить текущий набор IRIS-регионов.
-- `--verbose` - подробный вывод в консоль.
-- `--visualize` - включает визуализацию в Meshcat.
-- `--animation-speed` - скорость анимации при визуализации.
-- `--smart-keypoints` - экспериментальный режим выбора keypoints.
-- `--parallel` - включает параллельное фоновое исследование пространства.
-- `--num-workers` - число worker-процессов для `--parallel`.
-- `--k-shortest-paths` - число кратчайших путей, используемых при выборе подграфа для GCS.
-- `--warmstart` - строит стартовый набор IRIS-регионов до основного цикла.
-- `--warmstart-seeds` - число seed points для warm start.
-- `--rrt-only` - запуск только baseline на RRT*.
-- `--opt-only` - запуск только baseline оптимизации траектории.
+Focused bug fixes, tests, documentation improvements, and planning enhancements
+are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request. Please use
+the issue templates for reproducible bug reports and feature proposals.
 
-## Что выводит скрипт
+## Citation
 
-Во время работы скрипт печатает:
+If this software supports your work, cite the metadata in
+[CITATION.cff](CITATION.cff). GitHub can export it in common bibliography formats
+from the repository's “Cite this repository” menu.
 
-- сводку параметров запуска;
-- прогресс по итерациям;
-- число построенных и добавленных IRIS-регионов;
-- информацию о том, удалось ли решить запрос напрямую через GCS;
-- время работы GCS, RRT и построения IRIS;
-- итоговую статистику по всем запросам.
+## License
 
-## Структура репозитория
-
-- `online-gcs/` - основной онлайн-планировщик и примеры его запуска.
-- `helpers/` - реализация GCS planner, IRIS builder, RRT*, parallel exploration, TrajOpt solver и вспомогательных функций.
-- `experiments/` - экспериментальные сценарии и скрипты для анализа.
-- `docs/` - тексты, графики, отчеты и материалы по проекту.
-- `trajopt_baseline/` - отдельный baseline для экспериментов с TrajOpt.
-- `SETUP.md` - базовая инструкция по созданию виртуального окружения.
-
-### Структура проекта
-
-```text
-GCS/
-├── README.md                        # общее описание проекта и запуск
-├── SETUP.md                         # настройка окружения
-├── docs/                            # отчеты, TeX-материалы, PDF и иллюстрации
-├── experiments/                     # офлайн-эксперименты и исследовательские скрипты
-├── helpers/                         # основная алгоритмическая логика проекта
-│   ├── gcs_panner.py                # планирование по графу выпуклых множеств
-│   ├── iris_region_builder.py       # построение новых IRIS-регионов
-│   ├── opt_solver.py                # оптимизация траекторий / TrajOpt
-│   ├── parallel_exploration.py      # параллельное расширение покрытия
-│   ├── rrt_star_planner.py          # fallback-планировщик RRT*
-│   ├── scene_builder.py             # сборка и инициализация сцен
-│   └── utils.py                     # вспомогательные функции
-├── online-gcs/                      # основной онлайн-сценарий планирования
-│   ├── online_gcs.py                # главная точка входа
-```
+Released under the [MIT License](LICENSE). Copyright © 2026 Milana Krivova.
+Third-party dependencies retain their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

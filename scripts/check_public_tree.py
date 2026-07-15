@@ -4,8 +4,23 @@ import subprocess
 import sys
 
 FORBIDDEN_SUFFIXES = {
-    ".aux", ".bbl", ".bcf", ".blg", ".csv", ".doc", ".docm", ".docx",
-    ".fdb_latexmk", ".fls", ".ipynb", ".log", ".pdf", ".run.xml", ".synctex.gz", ".tex", ".toc",
+    ".aux",
+    ".bbl",
+    ".bcf",
+    ".blg",
+    ".csv",
+    ".doc",
+    ".docm",
+    ".docx",
+    ".fdb_latexmk",
+    ".fls",
+    ".ipynb",
+    ".log",
+    ".pdf",
+    ".run.xml",
+    ".synctex.gz",
+    ".tex",
+    ".toc",
 }
 FORBIDDEN_PARTS = {"__pycache__", ".cache", ".matplotlib-cache", "results", "logs"}
 

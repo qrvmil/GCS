@@ -22,6 +22,7 @@ online-gcs = "online_gcs.cli:main"
 [project.optional-dependencies]
 dev = ["build>=1.2", "mypy>=1.15", "pytest>=8", "pytest-cov>=6", "ruff>=0.9", "twine>=6"]
 docs = ["mkdocs-material>=9.6", "mkdocstrings[python]>=0.28"]
+demo = ["playwright>=1.50"]
 experiments = ["matplotlib>=3.10", "pandas>=2.2"]
 
 [tool.hatch.build.targets.wheel]
@@ -37,6 +38,7 @@ src = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "drake: tests that construct Drake systems or diagrams",
   "unit: fast tests that do not require external services",
@@ -51,6 +53,9 @@ source = ["src/online_gcs"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [tool.mypy]
 python_version = "3.12"

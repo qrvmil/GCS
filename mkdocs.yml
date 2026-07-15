@@ -1,0 +1,91 @@
+site_name: Online GCS
+site_description: Bilingual documentation for online Graphs of Convex Sets motion planning
+site_url: https://qrvmil.github.io/GCS/
+repo_url: https://github.com/qrvmil/GCS
+repo_name: qrvmil/GCS
+edit_uri: edit/main/docs/
+strict: true
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search:
+      lang:
+        - en
+        - ru
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            docstring_style: google
+            heading_level: 2
+            show_root_heading: true
+            show_source: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+
+extra:
+  alternate:
+    - name: English
+      link: /GCS/en/
+      lang: en
+    - name: Русский
+      link: /GCS/ru/
+      lang: ru
+
+nav:
+  - Choose language: index.md
+  - English:
+      - Overview: en/index.md
+      - Installation: en/installation.md
+      - Quick start: en/quickstart.md
+      - Architecture: en/architecture.md
+      - Python API: en/api.md
+      - CLI reference: en/cli.md
+      - Reproducibility: en/reproducibility.md
+      - Troubleshooting: en/troubleshooting.md
+  - Русский:
+      - Обзор: ru/index.md
+      - Установка: ru/installation.md
+      - Быстрый старт: ru/quickstart.md
+      - Архитектура: ru/architecture.md
+      - Python API: ru/api.md
+      - Справочник CLI: ru/cli.md
+      - Воспроизводимость: ru/reproducibility.md
+      - Решение проблем: ru/troubleshooting.md

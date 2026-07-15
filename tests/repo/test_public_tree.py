@@ -20,6 +20,10 @@ class PublicTreeTest(unittest.TestCase):
         paths = ["experiments/results/run.csv", "docs/report.pdf", "run.log"]
         self.assertEqual(find_forbidden_tracked(paths), paths)
 
+    def test_generated_coverage_report_is_ignored(self) -> None:
+        result = subprocess.run(["git", "check-ignore", "--quiet", "coverage.xml"], check=False)
+        self.assertEqual(result.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

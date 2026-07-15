@@ -54,19 +54,20 @@ def _exploration_worker(
         except Exception:
             pass
 
-        result_queue.put({
-            "task_id": task_id,
-            "interval_id": interval_id,
-            "success": success,
-            "seed_q": seed_q,
-            "A": A,
-            "b": b,
-            "build_time": build_time,
-        })
+        result_queue.put(
+            {
+                "task_id": task_id,
+                "interval_id": interval_id,
+                "success": success,
+                "seed_q": seed_q,
+                "A": A,
+                "b": b,
+                "build_time": build_time,
+            }
+        )
 
 
 class ParallelExplorationCoordinator:
-
     def __init__(
         self,
         scene_type: SceneType,
@@ -130,11 +131,13 @@ class ParallelExplorationCoordinator:
     def submit_tasks(self, seeds: List[np.ndarray], interval_id: int = 0) -> None:
         for seed_q in seeds:
             self._task_counter += 1
-            self._task_queue.put({
-                "task_id": self._task_counter,
-                "interval_id": interval_id,
-                "seed_q": np.asarray(seed_q).tolist(),
-            })
+            self._task_queue.put(
+                {
+                    "task_id": self._task_counter,
+                    "interval_id": interval_id,
+                    "seed_q": np.asarray(seed_q).tolist(),
+                }
+            )
 
     def _is_near_duplicate(
         self,

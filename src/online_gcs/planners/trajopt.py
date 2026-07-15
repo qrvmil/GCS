@@ -95,8 +95,7 @@ class TrajOptSolver:
                     min_d = p.distance
         return min_d
 
-    def _densely_check_collision(self, Q: np.ndarray,
-                                 subdivisions: int = 4) -> float:
+    def _densely_check_collision(self, Q: np.ndarray, subdivisions: int = 4) -> float:
         """Check min distance along the path including intermediate points
         between each pair of knots (linear interpolation)."""
         N = Q.shape[1]
@@ -230,8 +229,7 @@ class TrajOptSolver:
             )
         else:
             print(
-                f"[Opt solver] FAILED  time={solve_time:.3f}s  "
-                f"snopt_info={snopt_info}",
+                f"[Opt solver] FAILED  time={solve_time:.3f}s  snopt_info={snopt_info}",
                 flush=True,
             )
             return TrajOptResult(

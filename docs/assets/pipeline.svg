@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="pipeline-title pipeline-description">
+  <title id="pipeline-title">Online GCS planning pipeline</title>
+  <desc id="pipeline-description">Every query evaluates RRT star and TrajOpt baselines before checking GCS. If GCS coverage is insufficient, the RRT star path supplies keypoints, IRIS grows regions, the graph is updated, and GCS is retried.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#e8eef8"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #315c93; stroke-width: 2; rx: 14; }
+      .accent { fill: #e8f4ff; stroke: #1367a8; }
+      .growth { fill: #e9f8f1; stroke: #19724c; }
+      .label { font: 600 19px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; text-anchor: middle; }
+      .hint { font: 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; text-anchor: middle; }
+      .arrow { fill: none; stroke: #334155; stroke-width: 2.5; marker-end: url(#arrow); }
+      .step { fill: #315c93; }
+      .step-text { font: 700 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; text-anchor: middle; dominant-baseline: central; }
+    </style>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#background)"/>
+
+  <path class="arrow" d="M170 100 H215"/>
+  <path class="arrow" d="M385 100 H430"/>
+  <path class="arrow" d="M600 100 H645"/>
+  <path class="arrow" d="M815 100 H860"/>
+  <path class="arrow" d="M1030 100 H1075"/>
+  <path class="arrow" d="M1115 154 V264 H1020"/>
+  <path class="arrow" d="M850 300 H620"/>
+  <path class="arrow" d="M515 154 V246"/>
+
+  <g>
+    <rect class="box accent" x="30" y="46" width="140" height="108"/>
+    <circle class="step" cx="50" cy="66" r="14"/><text class="step-text" x="50" y="66">1</text>
+    <text class="label" x="100" y="96">Query</text>
+    <text class="hint" x="100" y="123">start → goal</text>
+  </g>
+  <g>
+    <rect class="box" x="215" y="46" width="170" height="108"/>
+    <circle class="step" cx="235" cy="66" r="14"/><text class="step-text" x="235" y="66">2</text>
+    <text class="label" x="300" y="91">Baselines</text>
+    <text class="hint" x="300" y="119">RRT* + TrajOpt</text>
+  </g>
+  <g>
+    <rect class="box accent" x="430" y="46" width="170" height="108"/>
+    <circle class="step" cx="450" cy="66" r="14"/><text class="step-text" x="450" y="66">3</text>
+    <text class="label" x="515" y="96">GCS check</text>
+    <text class="hint" x="515" y="123">current graph</text>
+  </g>
+  <g>
+    <rect class="box" x="645" y="46" width="170" height="108"/>
+    <circle class="step" cx="665" cy="66" r="14"/><text class="step-text" x="665" y="66">4</text>
+    <text class="label" x="730" y="96">Keypoints</text>
+    <text class="hint" x="730" y="123">if GCS is insufficient</text>
+  </g>
+  <g>
+    <rect class="box growth" x="860" y="46" width="170" height="108"/>
+    <circle class="step" cx="880" cy="66" r="14"/><text class="step-text" x="880" y="66">5</text>
+    <text class="label" x="945" y="96">IRIS</text>
+    <text class="hint" x="945" y="123">grow convex regions</text>
+  </g>
+  <g>
+    <rect class="box growth" x="1075" y="46" width="95" height="108"/>
+    <circle class="step" cx="1095" cy="66" r="14"/><text class="step-text" x="1095" y="66">6</text>
+    <text class="label" x="1122" y="96">Graph</text>
+    <text class="hint" x="1122" y="120">update</text>
+  </g>
+  <g>
+    <rect class="box accent" x="850" y="246" width="170" height="108"/>
+    <circle class="step" cx="870" cy="266" r="14"/><text class="step-text" x="870" y="266">7</text>
+    <text class="label" x="935" y="296">GCS retry</text>
+    <text class="hint" x="935" y="323">expanded graph</text>
+  </g>
+  <g>
+    <rect class="box growth" x="390" y="246" width="230" height="108"/>
+    <text class="label" x="505" y="296">Reusable coverage</text>
+    <text class="hint" x="505" y="323">for later queries</text>
+  </g>
+</svg>

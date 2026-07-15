@@ -362,7 +362,8 @@ class OnlineGCS:
                 added_count += 1
 
         self.stats.total_regions_added += added_count
-        self.stats.total_regions_after_pruning += added_count
+        self.stats.total_regions = len(self.gcs_planner.regions)
+        self.stats.total_regions_after_pruning = len(self.gcs_planner.regions)
         if self.logging:
             print(
                 f"  [OnlineGCS] Added {added_count} new regions "
@@ -412,13 +413,15 @@ class OnlineGCS:
             "warmstart_time": self.stats.warmstart_time,
             "warmstart_regions": self.stats.warmstart_regions,
             "regions_in_gcs": len(self.gcs_planner.regions),
-            "total_regions": self.stats.total_keypoints_requested,
+            "total_regions": len(self.gcs_planner.regions),
             "gcs_success_count": self.stats.gcs_success_count,
             "rrt_fallback_count": self.stats.rrt_fallback_count,
             "total_queries": self.stats.total_queries,
             "gcs_success_rate": self.stats.gcs_success_count / max(1, self.stats.total_queries),
-            "total_regions_added": self.stats.total_iris_regions_built,
-            "total_regions_after_pruning": self.stats.total_regions_after_pruning,
+            "total_regions_added": self.stats.total_regions_added,
+            "total_regions_after_pruning": len(self.gcs_planner.regions),
+            "total_keypoints_requested": self.stats.total_keypoints_requested,
+            "total_iris_regions_built": self.stats.total_iris_regions_built,
             "ways_rrt_time": {
                 way: np.mean(self.stats.stats_per_each_query_rrt[way][1])
                 for way in self.stats.stats_per_each_query_rrt
@@ -478,8 +481,10 @@ class OnlineGCS:
         print(f"  GCS successes:      {stats['gcs_success_count']}")
         print(f"  RRT fallbacks:      {stats['rrt_fallback_count']}")
         print(f"  GCS success rate:   {stats['gcs_success_rate'] * 100:.1f}%")
-        print(f"  Total regions:      {stats['total_regions']} (keypoints requested for building)")
-        print(f"  Regions added:      {stats['total_regions_added']} (IRIS regions actually built)")
+        print(f"  Total regions:      {stats['total_regions']} (current graph)")
+        print(f"  Regions added:      {stats['total_regions_added']} (accepted over this run)")
+        print(f"  Keypoints requested:{stats['total_keypoints_requested']:>7}")
+        print(f"  IRIS regions built: {stats['total_iris_regions_built']}")
         print(f"  Regions in GCS:     {stats['regions_in_gcs']} (current graph)")
         if stats["warmstart_regions"] > 0:
             print(
@@ -604,6 +609,8 @@ class OnlineGCS:
                 pruned_count += 1
 
         self.gcs_planner.regions = non_redundant
+        self.stats.total_regions = len(non_redundant)
+        self.stats.total_regions_after_pruning = len(non_redundant)
 
         if self.logging and pruned_count > 0:
             print(f"  [OnlineGCS] Pruned {pruned_count} redundant regions", flush=True)
@@ -928,6 +935,7 @@ class OnlineGCS:
                     gcs_vanilla_time = self.gcs_planner.solve_time
 
                     if success:
+                        self.stats.gcs_success_count += 1
                         if self.visualizer is not None and self.gcs_planner.trajectory is not None:
                             traj = self.gcs_planner.trajectory
                             times = np.linspace(traj.start_time(), traj.end_time(), 20)

@@ -25,7 +25,7 @@ python scripts/check_public_tree.py
 ruff format --check .
 ruff check .
 mypy src/online_gcs/config.py src/online_gcs/metrics.py src/online_gcs/cli.py
-pytest tests/unit tests/repo --cov=online_gcs --cov-report=term-missing
+pytest tests/unit tests/repo --cov=online_gcs --cov-report=term-missing --cov-report=xml
 pytest tests/integration tests/smoke -m "not slow and not visualization"
 python -m build
 python -m twine check dist/*

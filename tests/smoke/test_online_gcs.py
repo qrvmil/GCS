@@ -14,4 +14,5 @@ def test_single_shelf_one_query_smoke() -> None:
     stats = planner.run(num_keypoints=2, prune_interval=0)
 
     assert stats["total_queries"] == 1
-    assert stats["rrt_fallback_count"] + stats["gcs_success_count"] <= 1
+    assert stats["rrt_fallback_count"] == 1
+    assert stats["gcs_success_count"] == 1

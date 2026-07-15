@@ -14,3 +14,7 @@ def test_citation_matches_release() -> None:
     assert citation["version"] == "0.1.0"
     assert citation["repository-code"] == "https://github.com/qrvmil/GCS"
     assert citation["license"] == "MIT"
+
+
+def test_typed_package_marker_is_present() -> None:
+    assert Path("src/online_gcs/py.typed").is_file()
