@@ -12,8 +12,7 @@ import numpy as np
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
-from experiments.scene_types import SceneType
-from helpers.scene_builder import SceneBuilder
+from online_gcs.scenes import SceneBuilder, SceneType
 
 
 @dataclass

@@ -22,9 +22,8 @@ from pydrake.all import (
 )
 from pydrake.multibody.inverse_kinematics import MinimumDistanceLowerBoundConstraint
 
-from helpers.scene_builder import SceneBuilder
 from helpers.gcs_panner import GCSPathPlanner
-from experiments.scene_types import SceneType
+from online_gcs.scenes import SceneBuilder, SceneType
 
 
 @dataclass

@@ -16,10 +16,9 @@ from pydrake.all import (
 )
 from pydrake.geometry.optimization import Point
 
-from experiments.scene_types import SceneType
-from helpers.scene_builder import SceneBuilder
 from helpers.iris_region_builder import IRISRegionBuilder
-from helpers.utils import solve_IK
+from online_gcs.scenes import SceneBuilder, SceneType
+from online_gcs.utils import solve_IK
 
 
 class GCSPathPlanner:

@@ -3,7 +3,7 @@ import time
 
 try:
     import numpy as np
-    from experiments.scene_types import SceneType
+    from online_gcs.scenes import SceneType
     from helpers.parallel_exploration import ParallelExplorationCoordinator
     _HAS_DRAKE = True
 except ModuleNotFoundError as e:

@@ -1,18 +1,17 @@
 import os
 import time
-import yaml
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass, asdict
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple
 from datetime import datetime
 from itertools import combinations
 
 from helpers.rrt_star_planner import RRTStarPlanner, extract_keypoints, extract_keypoints_uniform
 from helpers.iris_region_builder import IRISRegionBuilder
 from helpers.gcs_panner import GCSPathPlanner
-from experiments.scene_types import SceneType
+from online_gcs.scenes import SceneType, load_shelf_configurations
 
 
 @dataclass
@@ -31,17 +30,6 @@ class RRTtoGCSResult:
     gcs_success: bool
     gcs_path_length: float
     gcs_solve_time: float
-
-
-def load_cspace_positions(yaml_path: str) -> Dict[str, List[np.ndarray]]:
-    with open(yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
-    
-    result = {}
-    for key, positions in data.items():
-        result[key] = [np.array(p) for p in positions]
-    
-    return result
 
 
 class RRTtoGCSExperiment:
@@ -70,19 +58,9 @@ class RRTtoGCSExperiment:
             SceneType.TWO_SHELVES,
             SceneType.TABLE_THREE_SHELVES,
         ]
-        
-        self.scene_to_config_key = {
-            SceneType.SINGLE_SHELF: "positions_single_shelf_cspace",
-            SceneType.TWO_SHELVES: "positions_two_shelves_cspace",
-            SceneType.TABLE_THREE_SHELVES: "positions_three_shelves_cspace",
-        }
-        
-        config_path = Path(__file__).parent / "configs" / "shelf_cspace_positions.yaml"
-        self.cspace_positions = load_cspace_positions(str(config_path))
-    
+
     def get_scene_positions(self, scene_type: SceneType) -> List[np.ndarray]:
-        key = self.scene_to_config_key[scene_type]
-        return self.cspace_positions.get(key, [])
+        return load_shelf_configurations(scene_type)
     
     def run_single_pair(self, scene_type: SceneType,
                         q_start: np.ndarray, q_goal: np.ndarray,

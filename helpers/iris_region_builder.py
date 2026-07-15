@@ -2,8 +2,7 @@ import time
 import numpy as np
 from typing import List, Dict, Optional
 
-from experiments.scene_types import SceneType
-from helpers.scene_builder import SceneBuilder
+from online_gcs.scenes import SceneBuilder, SceneType
 
 from pydrake.all import (
     HPolyhedron,

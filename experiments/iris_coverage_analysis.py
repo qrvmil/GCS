@@ -12,10 +12,9 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from datetime import datetime
 
-from helpers.scene_builder import SceneBuilder
 from helpers.iris_region_builder import IRISRegionBuilder
 from helpers.gcs_panner import GCSPathPlanner
-from experiments.scene_types import SceneType
+from online_gcs.scenes import SceneBuilder, SceneType
 
 
 
@@ -42,7 +41,7 @@ from pydrake.geometry.optimization import Point
 
 from manipulation.scenarios import AddIiwa, AddWsg
 from manipulation.utils import ConfigureParser
-from helpers.utils import solve_IK
+from online_gcs.utils import solve_IK
 
 
 @dataclass

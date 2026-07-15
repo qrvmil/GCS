@@ -6,8 +6,7 @@ from typing import List, Optional, Any
 import numpy as np
 from pydrake.all import HPolyhedron, IrisOptions, IrisNp
 
-from experiments.scene_types import SceneType
-from helpers.scene_builder import SceneBuilder
+from online_gcs.scenes import SceneBuilder, SceneType
 
 
 def _exploration_worker(

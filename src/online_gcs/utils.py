@@ -1,20 +1,12 @@
+from typing import List
+
+import numpy as np
+from pydrake.all import Context, MultibodyPlant
 from pydrake.multibody.inverse_kinematics import (
     InverseKinematics,
     MinimumDistanceLowerBoundConstraint,
 )
 from pydrake.solvers import Solve
-import numpy as np
-from typing import List
-from pydrake.all import (
-    Context,
-    InverseKinematics,
-    MultibodyPlant,
-    HPolyhedron,
-    Diagram,
-    MathematicalProgram,
-    Solve,
-)
-import time
 
 
 def solve_IK(
@@ -39,7 +31,7 @@ def solve_IK(
         plant=plant,
         bound=min_clearance,
         plant_context=plant_context,
-        influence_distance_offset=0.01
+        influence_distance_offset=0.01,
     )
     prog.AddConstraint(distance_constraint, q)
 
@@ -63,7 +55,5 @@ def solve_IK(
         return None
 
     q_sol = result.GetSolution(q)
-
     plant.SetPositions(plant_context, q_sol)
-
     return q_sol

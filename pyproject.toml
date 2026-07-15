@@ -38,6 +38,7 @@ src = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+  "drake: tests that construct Drake systems or diagrams",
   "unit: fast tests that do not require external services",
   "integration: tests that exercise multiple components",
 ]

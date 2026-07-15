@@ -21,7 +21,7 @@ from datetime import datetime
 
 from helpers.iris_region_builder import IRISRegionBuilder
 from helpers.gcs_panner import GCSPathPlanner
-from experiments.scene_types import SceneType
+from online_gcs.scenes import SceneType
 
 
 @dataclass
