@@ -1,7 +1,4 @@
 import ast
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +10,31 @@ LEGACY_IMPORT_ROOTS = {"helpers", "experiments.utils"}
 
 def _module(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _is_main_guard(node: ast.stmt) -> bool:
+    return (
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+        and len(node.test.ops) == 1
+        and isinstance(node.test.ops[0], ast.Eq)
+        and len(node.test.comparators) == 1
+        and isinstance(node.test.comparators[0], ast.Constant)
+        and node.test.comparators[0].value == "__main__"
+    )
+
+
+def _is_main_call(node: ast.stmt) -> bool:
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "main"
+        and not node.value.args
+        and not node.value.keywords
+    )
 
 
 @pytest.mark.parametrize("path", EXPERIMENTS, ids=str)
@@ -62,18 +84,38 @@ def test_experiments_do_not_patch_import_paths(path: Path) -> None:
     assert "spec_from_file_location" not in source
 
 
-def test_importing_experiments_does_not_run_them(tmp_path: Path) -> None:
-    repository = Path.cwd()
-    modules = [f"experiments.{path.stem}" for path in EXPERIMENTS if path.stem != "__init__"]
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(repository)
-    environment["MPLCONFIGDIR"] = str(tmp_path / "matplotlib")
+@pytest.mark.parametrize(
+    "path",
+    [path for path in EXPERIMENTS if path.stem != "__init__"],
+    ids=str,
+)
+def test_experiments_have_guarded_main_entrypoints(path: Path) -> None:
+    module = _module(path)
+    main_functions = [
+        node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "main"
+    ]
+    main_guards = [node for node in module.body if _is_main_guard(node)]
 
-    subprocess.run(
-        [sys.executable, "-c", "; ".join(f"import {module}" for module in modules)],
-        cwd=tmp_path,
-        env=environment,
-        check=True,
+    assert len(main_functions) == 1
+    assert len(main_guards) == 1
+    assert len(main_guards[0].body) == 1
+    assert _is_main_call(main_guards[0].body[0])
+    assert main_guards[0].orelse == []
+
+
+@pytest.mark.parametrize("path", EXPERIMENTS, ids=str)
+def test_experiments_have_no_unguarded_top_level_execution(path: Path) -> None:
+    safe_statements = (
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.FunctionDef,
+        ast.Import,
+        ast.ImportFrom,
     )
 
-    assert not (tmp_path / "artifacts").exists()
+    for node in _module(path).body:
+        if isinstance(node, safe_statements) or _is_main_guard(node):
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            continue
+        pytest.fail(f"unguarded top-level {type(node).__name__} in {path}:{node.lineno}")
